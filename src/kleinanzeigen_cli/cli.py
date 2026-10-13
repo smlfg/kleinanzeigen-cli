@@ -1,24 +1,34 @@
-"""CLI für kleinanzeigen – read-only Agent-Schnittstelle.
+"""CLI für kleinanzeigen – Agent-Schnittstelle.
 
 Subbefehle:
   search       Stichwortsuche mit Filtern (öffentlich, kein Login)
   show         Anzeigen-Details (öffentlich)
   categories   Liste der unterstützten Kategorie-Slugs
   watch        Lokaler Suchauftrag: nur neue IDs melden (kein Push)
+  login        Browser-Login (Auth0) – speichert Refresh-Token
+  logout       Session löschen
+  chats list   Eigene Konversationen auflisten (Login nötig)
+  chats read   Eine Konversation lesen (Login nötig)
+  chats send   Auf eine Konversation antworten (NUR mit --confirm)
   --version
   --help
 
-NUR Lesezugriffe: kein Login, kein Senden, kein Veröffentlichen.
+Read-only by default. Schreibzugriffe nur über `chats send`, dort
+zwingend mit explizitem --confirm.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from typing import Any, NoReturn, Optional
 
 from . import __version__, parser, search
+from . import auth as _auth
+from . import chats as _chats
+from . import login as _login
 from .http_client import HttpClient, HTTPError, ParseError, read_json, state_path, write_json
 
 
@@ -261,6 +271,142 @@ def cmd_watch(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------- login ----------
+
+
+def cmd_login(args: argparse.Namespace) -> int:
+    """Browser-Login via Playwright. Schreibt Refresh-Token in session.json."""
+    if os.environ.get("KLEINANZEIGEN_REFRESH_TOKEN"):
+        # Token via env → nur Session-Datei mitnehmen
+        session = _auth.Session()
+        session.set_refresh_token(
+            os.environ["KLEINANZEIGEN_REFRESH_TOKEN"],
+            email=os.environ.get("KLEINANZEIGEN_EMAIL"),
+        )
+        _emit(
+            {
+                "logged_in": True,
+                "email": session.email,
+                "quelle": "env:KLEINANZEIGEN_REFRESH_TOKEN",
+                "session_file": session.path,
+            },
+            args.json,
+        )
+        return 0
+    try:
+        info = _login.perform_login(headed=args.headed, timeout=args.timeout)
+    except _auth.NotLoggedIn as e:
+        _err(str(e), code=2)
+    except Exception as e:
+        # Captcha, Timeout, fehlendes playwright, Auth0-Fehler … alles,
+        # was den Login verhindert, bekommt Exit 4 (externe Sperre).
+        _err(str(e), code=4)
+    info["quelle"] = "browser"
+    _emit(info, args.json)
+    return 0
+
+
+# ---------- logout ----------
+
+
+def cmd_logout(args: argparse.Namespace) -> int:
+    session = _auth.Session()
+    if session.logged_in:
+        session.clear()
+        _emit(
+            {"logged_out": True, "session_file": session.path},
+            args.json,
+        )
+    else:
+        _emit(
+            {"logged_out": False, "grund": "keine Session vorhanden"},
+            args.json,
+        )
+    return 0
+
+
+# ---------- chats list ----------
+
+
+def cmd_chats_list(args: argparse.Namespace) -> int:
+    session = _auth.Session()
+    if not session.logged_in:
+        _err(
+            "Nicht eingeloggt. Bitte zuerst `kleinanzeigen login` (oder "
+            "KLEINANZEIGEN_REFRESH_TOKEN setzen).",
+            code=2,
+        )
+    try:
+        items = _chats.list_conversations(
+            session, page=args.page, size=args.size
+        )
+    except _auth.NotLoggedIn as e:
+        _err(str(e), code=2)
+    except RuntimeError as e:
+        _err(f"Chats-Fehler: {e}", code=3)
+    _emit(
+        {
+            "quelle": "https://www.kleinanzeigen.de",
+            "email": session.email,
+            "anzahl": len(items),
+            "unterhaltungen": items,
+        },
+        args.json,
+    )
+    return 0
+
+
+# ---------- chats read ----------
+
+
+def cmd_chats_read(args: argparse.Namespace) -> int:
+    session = _auth.Session()
+    if not session.logged_in:
+        _err(
+            "Nicht eingeloggt. Bitte zuerst `kleinanzeigen login`.",
+            code=2,
+        )
+    try:
+        conv = _chats.read_conversation(session, args.id)
+    except _auth.NotLoggedIn as e:
+        _err(str(e), code=2)
+    except RuntimeError as e:
+        _err(f"Chats-Fehler: {e}", code=3)
+    conv["quelle"] = "https://www.kleinanzeigen.de"
+    _emit(conv, args.json)
+    return 0
+
+
+# ---------- chats send (NUR mit --confirm) ----------
+
+
+def cmd_chats_send(args: argparse.Namespace) -> int:
+    """Sendet eine Nachricht. Ohne ``--confirm`` → Exit 5."""
+    if not args.confirm:
+        _err(
+            "Senden ohne --confirm nicht erlaubt. Übergib --confirm, "
+            "wenn die Nachricht tatsächlich verschickt werden soll.",
+            code=5,
+        )
+    session = _auth.Session()
+    if not session.logged_in:
+        _err(
+            "Nicht eingeloggt. Bitte zuerst `kleinanzeigen login`.",
+            code=2,
+        )
+    try:
+        result = _chats.send_message(session, args.id, args.text)
+    except _auth.NotLoggedIn as e:
+        _err(str(e), code=2)
+    except ValueError as e:
+        _err(str(e), code=1)
+    except RuntimeError as e:
+        _err(f"Sende-Fehler: {e}", code=3)
+    result["quelle"] = "https://www.kleinanzeigen.de"
+    _emit(result, args.json)
+    return 0
+
+
 # ---------- Argument-Parser ----------
 
 
@@ -268,9 +414,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="kleinanzeigen",
         description=(
-            "kleinanzeigen – read-only Agent-CLI für kleinanzeigen.de "
-            "(Suche, Filter, Details, lokaler Suchauftrag). "
-            "NUR Lesezugriffe, kein Login."
+            "kleinanzeigen – Agent-CLI für kleinanzeigen.de "
+            "(Suche, Filter, Details, lokaler Suchauftrag, Login & Chats). "
+            "Read-only by default; Senden via `chats send --confirm`."
         ),
     )
     p.add_argument("--version", action="version", version=f"kleinanzeigen {__version__}")
@@ -363,6 +509,58 @@ def _build_parser() -> argparse.ArgumentParser:
     w.add_argument("--limit", type=int, default=25)
     w.add_argument("--json", action="store_true")
     w.set_defaults(func=cmd_watch)
+
+    # login / logout
+    lg = sub.add_parser(
+        "login",
+        help=(
+            "Login via Browser (Playwright). Schreibt Refresh-Token in "
+            "$XDG_CONFIG_HOME/kleinanzeigen-cli/session.json."
+        ),
+    )
+    lg.add_argument(
+        "--headed", action="store_true",
+        help=("Browser-Fenster sichtbar machen – nötig, wenn headless "
+              "durch Captcha/2FA blockiert wird."),
+    )
+    lg.add_argument(
+        "--timeout", type=float, default=120.0,
+        help="Sekunden, die auf den Login-Redirect gewartet wird (default 120).",
+    )
+    lg.add_argument("--json", action="store_true")
+    lg.set_defaults(func=cmd_login)
+
+    lo = sub.add_parser("logout", help="Session-Datei löschen (Token weg).")
+    lo.add_argument("--json", action="store_true")
+    lo.set_defaults(func=cmd_logout)
+
+    # chats
+    ch = sub.add_parser("chats", help="Chat-Befehle (list/read/send).")
+    chat_sub = ch.add_subparsers(dest="chats_cmd", metavar="CHATCMD")
+    cl = chat_sub.add_parser("list", help="Eigene Konversationen auflisten.")
+    cl.add_argument("--page", type=int, default=0)
+    cl.add_argument("--size", type=int, default=100)
+    cl.add_argument("--json", action="store_true")
+    cl.set_defaults(func=cmd_chats_list)
+
+    cr = chat_sub.add_parser("read", help="Eine Konversation lesen.")
+    cr.add_argument("id", help="Konversations-ID (z. B. aus `chats list`).")
+    cr.add_argument("--json", action="store_true")
+    cr.set_defaults(func=cmd_chats_read)
+
+    cs = chat_sub.add_parser("send", help="Antwort in einer Konversation senden.")
+    cs.add_argument("id", help="Konversations-ID.")
+    cs.add_argument(
+        "--text", required=True,
+        help="Nachrichtentext. **Niemals ohne --confirm** aufrufen.",
+    )
+    cs.add_argument(
+        "--confirm", action="store_true",
+        help="Explizit bestätigen, dass die Nachricht *wirklich* gesendet "
+             "werden soll. Ohne dieses Flag: Exit 5.",
+    )
+    cs.add_argument("--json", action="store_true")
+    cs.set_defaults(func=cmd_chats_send)
 
     return p
 

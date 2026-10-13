@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "kleinanzeigen-cli"
 version = "0.1.0"
-description = "kleinanzeigen – read-only Agent-CLI für kleinanzeigen.de: Stichwortsuche, Filter, Anzeigen-Details, lokaler Suchauftrag. NUR Lesezugriffe."
+description = "kleinanzeigen – Agent-CLI für kleinanzeigen.de: Suche, Filter, Details, lokaler Suchauftrag, Login & Chats (lesen + explizit bestätigtes Antworten)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -35,6 +35,12 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+]
+playwright = [
+    # Browser-Login via Playwright; nur nötig, wenn `login` benutzt
+    # wird. Mit KLEINANZEIGEN_REFRESH_TOKEN kann man es komplett
+    # umgehen.
+    "playwright>=1.40",
 ]
 
 [project.scripts]

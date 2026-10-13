@@ -13,16 +13,18 @@ https://www.kleinanzeigen.de, gedacht für KI-Agenten und Menschen:
 - **Lokaler Suchauftrag** (`watch`): nur die **IDs neuer** Anzeigen
   werden in `~/.local/state/kleinanzeigen-cli/watch/<name>.json`
   gemerkt; es wird **nichts** nach außen geschickt.
+- **Login + Chats** (optional, mit Account): Konversationen auflisten,
+  lesen und *mit explizitem* `--confirm` antworten.
 
 Unterscheidung zu bestehenden Scrappern:
 
 - Stabile JSON-Schnittstelle (`--json`) für jeden Subbefehl.
-- **Nur Lesezugriffe**: kein Login, keine Cookies, kein Senden.
+- **Read-only by default**: kein Login, keine Cookies, kein Senden.
 - **Höflich**: expliziter User-Agent + 0,6 s Pause zwischen Requests;
   keine unnötigen Header (kein `br`).
-- **Tests ohne Netz**: Pytest-Suite mit synthetischen HTML-Fixtures
-  (kein Site-Roundtrip); gegen kleinanzeigen.de wird nur optional live
-  gesmoket.
+- **Tests ohne Netz**: Pytest-Suite mit synthetischen HTML- und
+  API-Fixtures (kein Site-Roundtrip); gegen kleinanzeigen.de wird nur
+  optional live gesmoket.
 
 ## Installation
 
@@ -30,6 +32,8 @@ Unterscheidung zu bestehenden Scrappern:
 pip install kleinanzeigen-cli
 # oder aus dem Repo:
 pip install .
+# Optional, nur für den Browser-Login (siehe unten):
+pip install ".[playwright]" && playwright install chromium
 ```
 
 Danach steht `kleinanzeigen` zur Verfügung.
@@ -55,7 +59,16 @@ kleinanzeigen watch  --name NAME [--query …] [--category …] [--location …]
                      [--offer-type …] [--sender-type …]
                      [--only-shipping] [--sorting …]
                      [--limit 25] [--json]
-kleinanzeigen --version | --help
+
+# Login + Chats (nur mit Konto)
+kleinanzeigen login  [--headed] [--timeout 120] [--json]
+kleinanzeigen logout [--json]
+kleinanzeigen chats list  [--page 0] [--size 100] [--json]
+kleinanzeigen chats read  <conversation-id> [--json]
+kleinanzeigen chats send  <conversation-id>
+                         --text "Hallo, ist das noch da?"
+                         --confirm
+                         [--json]
 ```
 
 `--location` ist die numerische kleinanzeigen-Location-ID (z. B.
@@ -85,6 +98,49 @@ kleinanzeigen watch --name "muenchen-iphone" \
     --query "iPhone" --location 8031 --radius 30 --json
 ```
 
+### Login + Chats
+
+Der Login nutzt den offiziellen Auth0-Flow (Authorization Code + PKCE)
+derselben Client-Konfiguration wie die Android-App – kein eigenes
+Passwort-Hacking. Die Session (nur der **Refresh-Token**, niemals das
+Passwort) liegt in `$XDG_CONFIG_HOME/kleinanzeigen-cli/session.json`
+mit Modus `0600`.
+
+**Variante 1 – Browser-Login (interaktiv):**
+
+```bash
+# headless; nur sinnvoll, wenn Akamai / Cloudflare den Bot durchlässt
+kleinanzeigen login --json
+# Captcha oder 2FA verlangt sichtbaren Browser:
+kleinanzeigen login --headed
+```
+
+**Variante 2 – vorhandener Refresh-Token (CI, Container, anderer Rechner):**
+
+```bash
+export KLEINANZEIGEN_REFRESH_TOKEN="RT-..."   # aus vorherigem Login
+export KLEINANZEIGEN_EMAIL="alice@example.com"  # optional
+kleinanzeigen login --json                     # schreibt session.json
+```
+
+**Chats danach:**
+
+```bash
+# alle eigenen Konversationen
+kleinanzeigen chats list --json
+
+# eine Konversation lesen (ID aus "chats list")
+kleinanzeigen chats read 12345 --json
+
+# antworten – NUR mit --confirm, sonst Exit 5
+kleinanzeigen chats send 12345 --text "Ja, ich komme morgen." --confirm --json
+```
+
+Das `chats`-JSON enthält pro Konversation: Anzeige (ID + Titel), die
+eigene Rolle (`BUYER`/`SELLER`), den Namen der Gegenseite, ob/anzahl
+ungelesen, und die letzte Nachricht. `chats read` liefert zusätzlich
+alle Nachrichten mit Richtung (`gesendet` / `empfangen`) und Zeitstempel.
+
 ## Ausgabe (mit `--json`)
 
 - `search`: `{ quelle, filter, url, anzahl, anzeigen: [...] }`
@@ -92,6 +148,12 @@ kleinanzeigen watch --name "muenchen-iphone" \
 - `categories`: `{ quelle, anzahl, kategorien: [...] }`
 - `watch`:  `{ quelle, watch_name, url, anzahl_aktuell, anzahl_neu,
   neue_anzeigen: [...], alle_ids: [...] }`
+- `login`:  `{ logged_in, email, quelle, session_file }`
+- `logout`: `{ logged_out, session_file }`
+- `chats list`: `{ quelle, email, anzahl, unterhaltungen: [...] }`
+- `chats read`: `{ id, anzeige_id, anzeige_titel, rolle, gegenueber,
+  nachrichten_anzahl, nachrichten: [...] }`
+- `chats send`: `{ gesendet, konversation_id, text_laenge }`
 
 Jede Anzeige enthält mindestens `id`, `url`, `titel`, `preis_euro`
 (kann `null` sein bei „VB"), `ort`, `plz`, `versand_moeglich`,
@@ -100,17 +162,27 @@ Detailseite zusätzlich `beschreibung_text`.
 
 ## Exit-Codes
 
-| Code | Bedeutung                                          |
-|-----:|----------------------------------------------------|
-| 0    | OK                                                 |
-| 1    | Ungültige Argumente / unbekannte ID                |
-| 2    | (reserviert – kein Login im read-only-Modus)       |
-| 3    | Netzwerk- / HTTP-Fehler                            |
-| 4    | Parse-Fehler                                       |
-| 5    | (reserviert – kein Send im read-only-Modus)        |
+| Code | Bedeutung                                                  |
+|-----:|------------------------------------------------------------|
+| 0    | OK                                                         |
+| 1    | Ungültige Argumente / unbekannte ID / leerer Send-Text     |
+| 2    | Nicht eingeloggt (für `login`/`logout`/`chats*`)           |
+| 3    | Netzwerk- / HTTP-Fehler                                    |
+| 4    | Login fehlgeschlagen (Captcha, 2FA, Auth0-Fehler …)        |
+| 5    | `chats send` ohne `--confirm`                              |
 
 Fehler werden als einzeiliges JSON-Objekt auf **stderr** geschrieben
-(`{"error": "...", ...}`).
+(`{"error": "...", ...}`). Erfolgs-Payloads gehen auf **stdout**.
+
+## Sicherheit
+
+- Passwörter werden **nie** gespeichert. Die Session-Datei enthält nur
+  den OAuth-Refresh-Token und (wenn verfügbar) die E-Mail.
+- `chats send` macht **nichts** ohne explizites `--confirm`. Das ist
+  der einzige schreibende Endpoint des CLI.
+- Die App-spezifischen Konstanten (Auth0-Client-ID, App-Basic-Auth)
+  sind öffentlich (sie stecken im offiziellen Android-APK) und werden
+  hier ohne Geheimnisse aus dem Repo benutzt.
 
 ## Höflichkeit
 
@@ -129,15 +201,18 @@ python -m pytest -q
 
 Die Tests sind netz-frei: die HTML wird in `tests/fixtures/synthetic.py`
 zusammengebaut und über den `parser` gefüttert; die Client-Filter
-werden gegen deterministische Karten-IDs geprüft.
+werden gegen deterministische Karten-IDs geprüft. Auch die Chat-API
+wird mit Fake-Responses getestet (`auth.Session` und `chats.*`); die
+HTTP-Calls sind monkey-gepatcht, kein Roundtrip.
 
 ## Rechtliches
 
 Diese Software ist ein privates Lernprojekt und **nicht** mit
 kleinanzeigen.de verbunden. Lesezugriffe sind in Deutschland nach
 § 87b UrhG für Suchmaschinen und vergleichbare Anbieter zulässig –
-das ersetzt keine Rechtsberatung. Die Bibliothek schreibt keine
-Cookies, loggt nichts und macht keine Accounts.
+das ersetzt keine Rechtsberatung. Das CLI folgt dem offiziellen
+Auth0-Flow der Android-App, schreibt keine Cookies, loggt nichts
+und macht keine Accounts von sich aus.
 
 ## Lizenz
 

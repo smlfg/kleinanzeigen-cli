@@ -113,6 +113,19 @@ def state_path() -> str:
     return os.path.join(base, "kleinanzeigen-cli")
 
 
+def config_path() -> str:
+    """Pfad für **vertrauliche** Daten: Login-Session (Refresh-Token).
+
+    Nach XDG_CONFIG_HOME: standardmäßig ``~/.config/kleinanzeigen-cli``.
+    Dort liegt der OAuth-Refresh-Token, der wie ein Passwort zu behandeln
+    ist (0600-Berechtigung).
+    """
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+        os.path.expanduser("~"), ".config"
+    )
+    return os.path.join(base, "kleinanzeigen-cli")
+
+
 def write_json(path: str, payload: Any) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"

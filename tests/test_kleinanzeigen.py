@@ -228,10 +228,16 @@ def test_client_filter_limit(synthetic_offers):
 # ---------- CLI Subprozess ----------
 
 
-def _run_cli(*args, env_extra=None):
+def _run_cli(*args, env_extra=None, xdg_config=None, xdg_state=None):
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
     env["ACCEPTANCE_SANDBOX"] = "1"
+    # XDG-Pfade umlenken, damit Session-Datei in tmp_path landet
+    if xdg_config is not None:
+        env["XDG_CONFIG_HOME"] = str(xdg_config)
+        env["KLEINANZEIGEN_SESSION_PATH"] = str(xdg_config / "session.json")
+    if xdg_state is not None:
+        env["XDG_STATE_HOME"] = str(xdg_state)
     if env_extra:
         env.update(env_extra)
     return subprocess.run(
@@ -274,3 +280,324 @@ def test_cli_show_rejects_garbage():
     r = _run_cli("show", "not-an-id", "--json")
     assert r.returncode == 1
     assert "Anzeigen-ID" in r.stderr or "Konnte keine" in r.stderr
+
+
+# ---------- Auth / Chats (neu) ----------
+
+
+import importlib
+import kleinanzeigen_cli.auth as _auth_mod
+import kleinanzeigen_cli.chats as _chats_mod
+import kleinanzeigen_cli.cli as _cli_mod
+
+
+def test_session_persists_refresh_token(tmp_path, monkeypatch):
+    """Session-File wird geschrieben, chmod 0600 angestrebt, logout löscht."""
+    sess_path = tmp_path / "session.json"
+    monkeypatch.setattr(_auth_mod, "config_path", lambda: str(tmp_path))
+    s = _auth_mod.Session(path=str(sess_path))
+    assert not s.logged_in
+    s.set_refresh_token("RT-FAKE", email="alice@example.com")
+    assert s.logged_in
+    assert s.refresh_token == "RT-FAKE"
+    # Datei existiert
+    assert sess_path.exists()
+    on_disk = json.loads(sess_path.read_text())
+    assert on_disk["refresh_token"] == "RT-FAKE"
+    # Frisches Session-Objekt liest die gleiche Datei
+    s2 = _auth_mod.Session(path=str(sess_path))
+    assert s2.logged_in and s2.email == "alice@example.com"
+    # Logout
+    s2.clear()
+    assert not s2.logged_in
+    assert not sess_path.exists()
+
+
+def test_session_env_fallback(tmp_path, monkeypatch):
+    """Wenn keine Datei da ist, KLEINANZEIGEN_REFRESH_TOKEN wird gelesen."""
+    monkeypatch.setattr(_auth_mod, "config_path", lambda: str(tmp_path))
+    monkeypatch.setenv("KLEINANZEIGEN_REFRESH_TOKEN", "RT-FROM-ENV")
+    s = _auth_mod.Session()
+    assert s.logged_in
+    assert s.refresh_token == "RT-FROM-ENV"
+
+
+def test_session_get_access_token_refreshes(monkeypatch, tmp_path):
+    """Bei abgelaufenem Token wird /oauth/token aufgerufen."""
+    monkeypatch.setattr(_auth_mod, "config_path", lambda: str(tmp_path))
+    s = _auth_mod.Session()
+    s.set_refresh_token("OLD-RT", email="alice@example.com")
+    s._t["expires_at"] = 0  # abgelaufen
+    # Mock POST gegen /oauth/token
+    import requests as _req
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        class R:
+            status_code = 200
+            text = "{}"
+            def json(self_inner):
+                return {
+                    "access_token": "NEW-AT",
+                    "refresh_token": "NEW-RT",
+                    "expires_in": 3600,
+                    "id_token": _make_id_token("alice@example.com"),
+                }
+        return R()
+    monkeypatch.setattr(_req, "post", fake_post)
+    tok = s.get_access_token()
+    assert tok == "NEW-AT"
+    assert s.refresh_token == "NEW-RT"
+    assert s.email == "alice@example.com"
+
+
+def _make_id_token(email: str) -> str:
+    """Baut ein winziges, aber valides id_token (HS-signiert egal,
+    wir lesen nur den Payload)."""
+    import base64
+    payload = {
+        "email": email,
+        "sub": "auth0|123",
+        "iss": "https://login.kleinanzeigen.de/",
+        "aud": "uV5j90myVPc2XzEOFuWUD2At17OACEGQ",
+    }
+    payload_b64 = base64.urlsafe_b64encode(
+        json.dumps(payload).encode()
+    ).decode().rstrip("=")
+    return f"header.{payload_b64}.signature"
+
+
+# ----- Chats-API-Mocking -----
+
+def _ok(status=200, body=None, text=None):
+    class R:
+        pass
+    r = R()
+    r.status_code = status
+    r.text = text or (json.dumps(body) if body is not None else "")
+    def _json(self_inner=None):
+        return body or {}
+    r.json = _json
+    return r
+
+
+def test_chats_list_parses(monkeypatch, tmp_path):
+    monkeypatch.setattr(_auth_mod, "config_path", lambda: str(tmp_path))
+    s = _auth_mod.Session()
+    s.set_refresh_token("RT", email="alice@example.com")
+    # user_id ist gesetzt → keine profile-lookup nötig
+    s.set_user_id("99")
+    # Token gilt als frisch
+    s._t["access_token"] = "AT"
+    s._t["expires_at"] = 9e18
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        assert "conversations" in url
+        return _ok(200, {
+            "conversations": [
+                {
+                    "id": "c1",
+                    "adId": "12345",
+                    "adTitle": "iPhone 12",
+                    "role": "BUYER",
+                    "sellerName": "Hans",
+                    "unread": True,
+                    "unreadMessagesCount": 2,
+                    "receivedDate": "2026-10-13T12:34:56+02:00",
+                    "textShortTrimmed": "Hallo, ist das noch da?",
+                },
+                {
+                    "id": "c2",
+                    "adId": "67890",
+                    "adTitle": "Couch",
+                    "role": "SELLER",
+                    "buyerName": "Erika",
+                    "unread": False,
+                    "unreadMessagesCount": 0,
+                    "receivedDate": "2026-10-12T08:00:00+0200",
+                    "textShortTrimmed": "OK, danke!",
+                },
+            ]
+        })
+
+    import requests as _req
+    monkeypatch.setattr(_req, "get", fake_get)
+    items = _chats_mod.list_conversations(s)
+    assert len(items) == 2
+    c1 = items[0]
+    assert c1["id"] == "c1"
+    assert c1["anzeige_id"] == "12345"
+    assert c1["rolle"] == "BUYER"
+    # Bei BUYER ist die andere Partei der Verkäufer
+    assert c1["gegenueber"] == "Hans"
+    assert c1["ungelesen"] is True
+    assert c1["ungelesen_anzahl"] == 2
+    assert "2026-10-13" in c1["letzte_nachricht"]["zeit"]
+    c2 = items[1]
+    assert c2["rolle"] == "SELLER"
+    # Bei SELLER ist die andere Partei der Käufer
+    assert c2["gegenueber"] == "Erika"
+
+
+def test_chats_list_requires_login(tmp_path, monkeypatch):
+    monkeypatch.setattr(_auth_mod, "config_path", lambda: str(tmp_path))
+    s = _auth_mod.Session()
+    with pytest.raises(_auth_mod.NotLoggedIn):
+        _chats_mod.list_conversations(s)
+
+
+def test_chats_read_parses(monkeypatch, tmp_path):
+    monkeypatch.setattr(_auth_mod, "config_path", lambda: str(tmp_path))
+    s = _auth_mod.Session()
+    s.set_refresh_token("RT", email="alice@example.com")
+    s.set_user_id("99")
+    s._t["access_token"] = "AT"
+    s._t["expires_at"] = 9e18
+
+    def fake_put(url, params=None, headers=None, timeout=None):
+        return _ok(200, {
+            "id": "c1",
+            "adId": "12345",
+            "adTitle": "iPhone 12",
+            "role": "BUYER",
+            "sellerName": "Hans",
+            "messages": [
+                {
+                    "boundness": "OUT",
+                    "text": "Hallo, ist das noch da?",
+                    "receivedDate": "2026-10-13T10:00:00+02:00",
+                    "senderName": "Ich",
+                    "senderAccountType": "private",
+                },
+                {
+                    "boundness": "IN",
+                    "text": "Ja, kannst du vorbeikommen.",
+                    "receivedDate": "2026-10-13T11:00:00+02:00",
+                    "senderName": "Hans",
+                    "senderAccountType": "private",
+                },
+            ],
+        })
+
+    import requests as _req
+    monkeypatch.setattr(_req, "put", fake_put)
+    out = _chats_mod.read_conversation(s, "c1")
+    assert out["id"] == "c1"
+    assert out["nachrichten_anzahl"] == 2
+    msgs = out["nachrichten"]
+    assert msgs[0]["richtung"] == "gesendet"
+    assert msgs[1]["richtung"] == "empfangen"
+    assert msgs[0]["text"] == "Hallo, ist das noch da?"
+
+
+def test_chats_send_calls_post_with_json(monkeypatch, tmp_path):
+    monkeypatch.setattr(_auth_mod, "config_path", lambda: str(tmp_path))
+    s = _auth_mod.Session()
+    s.set_refresh_token("RT", email="alice@example.com")
+    s.set_user_id("99")
+    s._t["access_token"] = "AT"
+    s._t["expires_at"] = 9e18
+
+    captured = {}
+
+    def fake_post(url, params=None, headers=None, json=None, data=None, timeout=None):
+        captured["url"] = url
+        captured["params"] = params
+        captured["headers"] = headers
+        captured["json"] = json
+        return _ok(201, {})
+
+    import requests as _req
+    monkeypatch.setattr(_req, "post", fake_post)
+    out = _chats_mod.send_message(s, "c1", "Hallo zurück")
+    assert out["gesendet"] is True
+    assert out["konversation_id"] == "c1"
+    assert out["text_laenge"] == len("Hallo zurück")
+    # An die richtige URL und mit Bearer
+    assert captured["url"].endswith("/conversations/c1")
+    assert captured["json"] == {"message": "Hallo zurück"}
+    assert captured["headers"]["Authorization"].startswith("Bearer ")
+
+
+def test_cli_chats_list_without_login(tmp_path):
+    """Ohne Session: Exit 2, klare Fehlermeldung."""
+    r = _run_cli("chats", "list", "--json", xdg_config=tmp_path)
+    assert r.returncode == 2
+    assert "Nicht eingeloggt" in r.stderr
+
+
+def test_cli_chats_send_requires_confirm(tmp_path, monkeypatch):
+    """Ohne --confirm: Exit 5, kein HTTP-Call."""
+    # Session in tmp_path anlegen (via Subprozess-Login mit env-Token)
+    r1 = _run_cli(
+        "login", "--json",
+        xdg_config=tmp_path,
+        env_extra={"KLEINANZEIGEN_REFRESH_TOKEN": "RT-FOR-CONFIRM-TEST"},
+    )
+    assert r1.returncode == 0, r1.stderr
+    # HTTP-Calls global abfangen
+    import requests as _req
+    import kleinanzeigen_cli.auth as _a
+    called = {"post": False}
+    orig_post = _req.post
+    def fake_post(*a, **k):
+        called["post"] = True
+        return _ok(201, {})
+    monkeypatch.setattr(_req, "post", fake_post)
+    # User-ID wird in chats.send_message via profile.json geholt, das wir
+    # auch mocken.
+    orig_get = _req.get
+    def fake_get(url, *a, **k):
+        if "profile.json" in url:
+            return _ok(200, {"data": {"id": 99}})
+        return orig_get(url, *a, **k)
+    monkeypatch.setattr(_req, "get", fake_get)
+    r = _run_cli(
+        "chats", "send", "c1", "--text", "Hallo",
+        xdg_config=tmp_path,
+    )
+    assert r.returncode == 5
+    assert "confirm" in r.stderr
+    assert called["post"] is False, "es darf kein HTTP-Call abgesetzt werden"
+
+
+def test_cli_login_via_env_token(tmp_path):
+    """KLEINANZEIGEN_REFRESH_TOKEN → Login ohne Browser, Session-Datei da."""
+    r = _run_cli(
+        "login", "--json",
+        xdg_config=tmp_path,
+        env_extra={
+            "KLEINANZEIGEN_REFRESH_TOKEN": "RT-FROM-ENV",
+            "KLEINANZEIGEN_EMAIL": "alice@example.com",
+        },
+    )
+    assert r.returncode == 0, r.stderr
+    payload = json.loads(r.stdout)
+    assert payload["logged_in"] is True
+    assert payload["email"] == "alice@example.com"
+    assert payload["quelle"].startswith("env:")
+    # Session-Datei persistiert
+    assert (tmp_path / "session.json").exists()
+
+
+def test_cli_logout(tmp_path):
+    """logout entfernt die Session-Datei."""
+    # erst Session anlegen
+    r1 = _run_cli(
+        "login", "--json",
+        xdg_config=tmp_path,
+        env_extra={"KLEINANZEIGEN_REFRESH_TOKEN": "RT"},
+    )
+    assert r1.returncode == 0, r1.stderr
+    r = _run_cli("logout", "--json", xdg_config=tmp_path)
+    assert r.returncode == 0
+    payload = json.loads(r.stdout)
+    assert payload["logged_out"] is True
+    assert not (tmp_path / "session.json").exists()
+
+
+def test_cli_login_browser_path_errors(tmp_path):
+    """login ohne env und ohne playwright → klare Fehlermeldung (Exit 4)."""
+    r = _run_cli("login", "--json", xdg_config=tmp_path)
+    # playwright ist in venv nicht installiert → expect exit 4
+    assert r.returncode == 4
+    assert "playwright" in r.stderr.lower()
