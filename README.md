@@ -155,10 +155,28 @@ alle Nachrichten mit Richtung (`gesendet` / `empfangen`) und Zeitstempel.
   nachrichten_anzahl, nachrichten: [...] }`
 - `chats send`: `{ gesendet, konversation_id, text_laenge }`
 
-Jede Anzeige enthält mindestens `id`, `url`, `titel`, `preis_euro`
-(kann `null` sein bei „VB"), `ort`, `plz`, `versand_moeglich`,
-`versender_typ`, `kategorie_pfad`, `beschreibung_kurz`. Auf der
-Detailseite zusätzlich `beschreibung_text`.
+Jede Anzeige enthält mindestens `id`, `url`, `titel`, `preis_euro`,
+`preis_typ`, `ort`, `plz`, `versand_moeglich`, `versender_typ`,
+`kategorie_pfad`, `beschreibung_kurz`. Auf der Detailseite zusätzlich
+`beschreibung_text`.
+
+### Preis-Felder
+
+| Feld         | Typ                     | Bedeutung                                                   |
+|--------------|-------------------------|-------------------------------------------------------------|
+| `preis_euro` | `int` \| `null`         | numerischer Preis in €; `null` wenn kein Betrag erkennbar   |
+| `preis_typ`  | `fest`\|`vb`\|`verschenken`\|`anfrage`\|`tausch`\|`null` | Was im Preisfeld steht |
+
+- `fest`: konkrete Zahl + € (z. B. `1.690 €`, `699 €`, `1.299 €`)
+- `vb`: Verhandlungsbasis (`VB` allein oder `699 € VB`)
+- `verschenken`: Anzeige ohne Preis, nur „Zu verschenken"
+- `anfrage`: „Preis auf Anfrage" / „auf Anfrage"
+- `tausch`: reine Tauschanzeige (`Tausche`, im Preisfeld oder Titel)
+- `null`: Karte hat gar kein Preisfeld (kaputter Eintrag / reine Tausch-Anzeige ohne Preisfeld)
+
+`preis_euro` und `preis_typ` werden direkt aus dem Preisfeld der
+Suchergebnisse gelesen, nicht per Volltext-Fallback (das geriet bei
+Anzeigen-IDs und Slugs in die Irre).
 
 ## Exit-Codes
 
