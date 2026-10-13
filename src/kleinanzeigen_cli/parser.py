@@ -30,6 +30,19 @@ _PRICE_RE = re.compile(r"(\d[\d.,]*)\s*(?:&euro;|€)")
 _PLZ_RE = re.compile(r"\b(\d{5})\s+([A-Za-zäöüÄÖÜß][A-Za-zäöüÄÖÜß \-/]{1,40})\b")
 _KAT_RE = re.compile(r"/(s-[a-z0-9\-]+)/")
 
+# Marker für Preis-Typen, die im Preisfeld der Live-Site stehen.
+# Reihenfolge ist relevant: "VB" muss vor "verschenken" geprüft werden
+# (ein "Zu verschenken VB" ist ungewöhnlich, aber "VB" als alleiniges
+# Wort heißt "Verhandlungsbasis").
+_PRICE_TYPE_MARKERS: list[tuple[str, str]] = [
+    (r"\bzu\s+verschenken\b", "verschenken"),
+    (r"\bverschenken\b", "verschenken"),
+    (r"\bpreis\s+auf\s+anfrage\b", "anfrage"),
+    (r"\bauf\s+anfrage\b", "anfrage"),
+    (r"\bvb\b", "vb"),
+    (r"\btausch\b|\bzu\s+tauschen\b|\btausche\b", "tausch"),
+]
+
 
 def _norm_ws(s: str) -> str:
     return re.sub(r"\s+", " ", s or "").strip()
@@ -80,6 +93,51 @@ def _category_from_card_text(html: str) -> Optional[str]:
     return None
 
 
+def _price_field(card_html: str) -> Optional[str]:
+    """Liest den angezeigten Preistext direkt aus dem Preisfeld.
+
+    Auf der Live-Site (Stand 2026-10-13) ist das immer
+    `<p class="…text-secondary…">…</p>` – Beispiele:
+    ``1.690 €``, ``699 € VB``, ``VB``, ``Zu verschenken``,
+    ``Preis auf Anfrage``.
+
+    Im synthetischen Test-Fixture ist es
+    ``<p class="aditem-price">…</p>``. Wir akzeptieren beides.
+
+    Wir nehmen den **ersten** Treffer – das Preisfeld steht im DOM
+    vor dem Versand/Versender-Bereich.
+    """
+    m = re.search(
+        r'<p[^>]*class="[^"]*(?:text-secondary|aditem-price)[^"]*"[^>]*>([^<]+)</p>',
+        card_html,
+    )
+    if not m:
+        return None
+    return _norm_ws(m.group(1))
+
+
+def _price_type(price_text: str) -> str:
+    """Leitet aus dem Preistext den Preis-Typ ab.
+
+    Liefert genau einen von: ``fest``, ``vb``, ``verschenken``,
+    ``anfrage``, ``tausch``. ``fest`` = konkrete Zahl + €; alles
+    ohne Zahl ist ein Marker-Typ.
+    """
+    if not price_text:
+        return "fest"
+    # Marker zuerst (Reihenfolge wichtig: "verschenken" vor "vb")
+    low = price_text.lower()
+    for pat, typ in _PRICE_TYPE_MARKERS:
+        if re.search(pat, low):
+            return typ
+    # Sonst: wenn eine Euro-Zahl drinsteht, ist es ein fester Preis.
+    if _PRICE_RE.search(price_text):
+        return "fest"
+    # Unbekannter Text ohne €-Zahl → konservativ "fest" (kein
+    # Marker bekannt). None wäre fürs JSON-Output unhandlich.
+    return "fest"
+
+
 def _parse_card_top_spans(card_html: str) -> list[str]:
     """Sammelt direkt unter `<article>` enthaltene Text-Strings (Labels)."""
     soup = BeautifulSoup(card_html, "lxml")
@@ -106,13 +164,12 @@ def parse_card(card_html: str) -> Optional[dict]:
     description = jld.get("description") or None
     spans = _parse_card_top_spans(card_html)
 
-    # Preis: erste sinnvolle Zahl mit €
-    price = None
-    for t in spans + [card_html]:
-        p = _eur_to_int(t)
-        if p is not None:
-            price = p
-            break
+    # Preis: direkt aus dem Preisfeld (robuster als Full-Text-Fallback,
+    # der bei Anzeigen-IDs und Slugs in die Irre laufen kann).
+    # Liefert z.B. "1.690 €", "699 € VB", "VB", "Zu verschenken".
+    price_field = _price_field(card_html)
+    price = _eur_to_int(price_field) if price_field else None
+    price_type = _price_type(price_field) if price_field else "fest"
 
     # Ort (PLZ + Ort)
     ort = None
@@ -155,6 +212,7 @@ def parse_card(card_html: str) -> Optional[dict]:
         "slug": _slug_from_url(detail_href or "") if detail_href else None,
         "titel": title,
         "preis_euro": price,
+        "preis_typ": price_type,
         "ort": ort,
         "plz": plz,
         "versand_moeglich": versand,
