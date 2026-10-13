@@ -119,13 +119,47 @@ def synthetic_offers():
 
 def test_parse_search_basic(synthetic_offers):
     ids = [o["id"] for o in synthetic_offers]
-    assert ids == ["2001", "2002", "2003", "2004", "2005", "2006"]
+    assert ids == ["2001", "2002", "2003", "2004", "2005", "2006",
+                   "2010", "2011", "2012", "2013", "2014"]
 
 
 def test_parse_search_prices(synthetic_offers):
     prices = [o["preis_euro"] for o in synthetic_offers]
-    assert prices == [200, 420, 80, 380, 320, None]
-    # Karte 2006 hat VB → None (kein Match auf _PRICE_RE)
+    assert prices == [200, 420, 80, 380, 320, None, None, 699, None, 1299, None]
+    # Karte 2006+2010+2012+2014 haben keinen Euro-Wert (VB/Verschenken/Tausch)
+
+
+def test_parse_search_price_types(synthetic_offers):
+    """preis_typ wird für jede Karte korrekt aus dem Preisfeld abgeleitet."""
+    types = [o["preis_typ"] for o in synthetic_offers]
+    # 2001..2005 = fest (Zahl + €), 2006 = VB-only (kein Euro-Wert)
+    # 2010 = VB-only, 2011 = VB mit Zahl → vb, 2012 = verschenken,
+    # 2013 = Tausenderpunkt fest, 2014 = Tausch
+    assert types == [
+        "fest", "fest", "fest", "fest", "fest", "vb",
+        "vb", "vb", "verschenken", "fest", "tausch",
+    ]
+
+
+def test_parse_search_accept_akzeptanz(synthetic_offers):
+    """Akzeptanztest: alle bekannten Live-Preis-Varianten werden
+    korrekt erkannt (fest/VB/Verschenken/Tausch/Tausenderpunkt)."""
+    by_id = {o["id"]: o for o in synthetic_offers}
+    # Tausenderpunkt
+    assert by_id["2013"]["preis_euro"] == 1299
+    assert by_id["2013"]["preis_typ"] == "fest"
+    # VB-only
+    assert by_id["2010"]["preis_euro"] is None
+    assert by_id["2010"]["preis_typ"] == "vb"
+    # VB mit Zahl
+    assert by_id["2011"]["preis_euro"] == 699
+    assert by_id["2011"]["preis_typ"] == "vb"
+    # Zu verschenken
+    assert by_id["2012"]["preis_euro"] is None
+    assert by_id["2012"]["preis_typ"] == "verschenken"
+    # Tausch
+    assert by_id["2014"]["preis_euro"] is None
+    assert by_id["2014"]["preis_typ"] == "tausch"
 
 
 def test_parse_search_locations(synthetic_offers):
@@ -137,17 +171,28 @@ def test_parse_search_locations(synthetic_offers):
         ("50667", "Köln Innenstadt"),
         ("80331", "München Zentrum"),
         ("70173", "Stuttgart"),
+        ("50667", "Köln Innenstadt"),
+        ("80331", "München Zentrum"),
+        ("20095", "Hamburg Altstadt"),
+        ("10115", "Berlin Mitte"),
+        ("10405", "Berlin Prenzlauer Berg"),
     ]
 
 
 def test_parse_search_sender_types(synthetic_offers):
     types = [o["versender_typ"] for o in synthetic_offers]
-    assert types == ["privat", "gewerblich", "privat", "privat", "gewerblich", "privat"]
+    assert types == [
+        "privat", "gewerblich", "privat", "privat", "gewerblich", "privat",
+        "privat", "privat", "privat", "gewerblich", "privat",
+    ]
 
 
 def test_parse_search_shipping(synthetic_offers):
     versand = [o["versand_moeglich"] for o in synthetic_offers]
-    assert versand == [True, True, False, True, True, False]
+    assert versand == [
+        True, True, False, True, True, False,
+        True, True, False, True, False,
+    ]
 
 
 def test_parse_search_titles(synthetic_offers):
@@ -195,29 +240,39 @@ def _ns(**kwargs):
 
 def test_client_filter_min_price(synthetic_offers):
     out = _client_filter(_ns(min_price=300), synthetic_offers)
-    # 2002 (420), 2004 (380), 2005 (320); 2006 ist None → bleibt toleriert
-    assert [o["id"] for o in out] == ["2002", "2004", "2005", "2006"]
+    # >=300: 2002 (420), 2004 (380), 2005 (320), 2011 (699), 2013 (1299).
+    # None-Werte (2006/2010/2012/2014) bleiben; alles in Original-Reihenfolge.
+    assert [o["id"] for o in out] == [
+        "2002", "2004", "2005", "2006", "2010", "2011", "2012", "2013", "2014",
+    ]
 
 
 def test_client_filter_max_price(synthetic_offers):
     out = _client_filter(_ns(max_price=200), synthetic_offers)
-    # ≤200: 2001 (200), 2003 (80), 2006 (None → bleibt)
-    assert [o["id"] for o in out] == ["2001", "2003", "2006"]
+    # ≤200: 2001 (200), 2003 (80); None bleibt (2006/2010/2012/2014)
+    assert [o["id"] for o in out] == [
+        "2001", "2003", "2006", "2010", "2012", "2014",
+    ]
 
 
 def test_client_filter_only_shipping(synthetic_offers):
     out = _client_filter(_ns(only_shipping=True), synthetic_offers)
-    assert [o["id"] for o in out] == ["2001", "2002", "2004", "2005"]
+    # 2001,2002,2004,2005,2010,2011,2013
+    assert [o["id"] for o in out] == ["2001", "2002", "2004", "2005", "2010", "2011", "2013"]
 
 
 def test_client_filter_only_private(synthetic_offers):
     out = _client_filter(_ns(only_private=True), synthetic_offers)
-    assert [o["id"] for o in out] == ["2001", "2003", "2004", "2006"]
+    # alle außer 2002, 2005, 2013
+    assert [o["id"] for o in out] == [
+        "2001", "2003", "2004", "2006", "2010", "2011", "2012", "2014",
+    ]
 
 
 def test_client_filter_only_commercial(synthetic_offers):
     out = _client_filter(_ns(only_commercial=True), synthetic_offers)
-    assert [o["id"] for o in out] == ["2002", "2005"]
+    # 2002, 2005, 2013
+    assert [o["id"] for o in out] == ["2002", "2005", "2013"]
 
 
 def test_client_filter_limit(synthetic_offers):

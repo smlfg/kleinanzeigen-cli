@@ -11,17 +11,29 @@ from __future__ import annotations
 from html import escape
 
 
-def _card(adid: str, *, title: str, price: int | None, plz: str, ort: str,
+def _card(adid: str, *, title: str, plz: str, ort: str,
           versand: bool, sender: str, beschreibung: str,
-          slug_path: str = "s-handy-telefon") -> str:
-    """Baut eine <article data-adid=…>-Karte."""
+          slug_path: str = "s-handy-telefon",
+          price: int | None = None,
+          price_label: str | None = None) -> str:
+    """Baut eine <article data-adid=…>-Karte.
+
+    `price_label` (optional) überschreibt den angezeigten Preistext. Wenn
+    gesetzt, wird der Wert 1:1 in das `<p class="aditem-price">`
+    geschrieben (typische Live-Varianten: "VB", "Zu verschenken",
+    "1 € VB", "Preis auf Anfrage", "1.299 €"). `price` (int|None) wird
+    dann ignoriert – er wird aus `price_label` abgeleitet, falls eine
+    Zahl drin steht.
+    """
     sender_label = "Privater Nutzer" if sender == "privat" else "Gewerblicher Verkäufer"
     versand_label = '<span class="badge-shipping">Versand möglich</span>' if versand else ""
-    price_html = (
-        f'<p class="aditem-price"><span>{price} €</span></p>'
-        if price is not None
-        else '<p class="aditem-price"><span>VB</span></p>'
-    )
+    if price_label is not None:
+        # genau so, wie die Live-Site das Feld rendert
+        price_html = f'<p class="aditem-price">{price_label}</p>'
+    elif price is not None:
+        price_html = f'<p class="aditem-price">{price} €</p>'
+    else:
+        price_html = '<p class="aditem-price">VB</p>'
     jld = {
         "@context": "https://schema.org",
         "@type": "Product",
@@ -70,7 +82,12 @@ SYNTHETIC_SEARCH = f"""<!DOCTYPE html>
 {_ad(2004, title="iPhone 13 mini 128GB",          plz="50667", ort="Köln Innenstadt",       price=380, versand=True,  sender="privat",     beschreibung="Kaum benutzt, OVP vorhanden.")}
 {_ad(2005, title="Samsung Galaxy S22",            plz="80331", ort="München Zentrum",       price=320, versand=True,  sender="gewerblich", beschreibung="Generalüberholt, 24 Monate Gewährleistung.")}
 {_ad(2006, title="Defektes iPhone 12 (Akzeptanz)",  plz="70173", ort="Stuttgart",            price=None, versand=False, sender="privat",   beschreibung="Zu verschenken, geht nicht mehr an.")}
-</ul>
+    {_ad(2010, title="MacBook Pro 13 M1 VB-only",      plz="50667", ort="Köln Innenstadt",       price_label="VB",                  versand=True,  sender="privat",     beschreibung="Suche Interessenten.")}
+    {_ad(2011, title="MacBook Pro 13 M1 VB-mit-Zahl",  plz="80331", ort="München Zentrum",       price_label="699 € VB",            versand=True,  sender="privat",     beschreibung="Kann auch weniger sein.")}
+    {_ad(2012, title="iPhone 12 (zu verschenken)",     plz="20095", ort="Hamburg Altstadt",      price_label="Zu verschenken",      versand=False, sender="privat",     beschreibung="Verschenke das Gerät.")}
+    {_ad(2013, title="iPhone 12 Pro Max",              plz="10115", ort="Berlin Mitte",          price_label="1.299 €",            versand=True,  sender="gewerblich", beschreibung="Tausenderpunkt mit Punkt.")}
+    {_ad(2014, title="MacBook Pro 13 Tausch",          plz="10405", ort="Berlin Prenzlauer Berg", price_label="Tausche",            versand=False, sender="privat",     beschreibung="Tausche gegen Roller.")}
+  </ul>
 </main>
 </body>
 </html>
