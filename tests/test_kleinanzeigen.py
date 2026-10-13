@@ -120,24 +120,23 @@ def synthetic_offers():
 def test_parse_search_basic(synthetic_offers):
     ids = [o["id"] for o in synthetic_offers]
     assert ids == ["2001", "2002", "2003", "2004", "2005", "2006",
-                   "2010", "2011", "2012", "2013", "2014"]
+                   "2010", "2011", "2012", "2013", "2014", "2015"]
 
 
 def test_parse_search_prices(synthetic_offers):
     prices = [o["preis_euro"] for o in synthetic_offers]
-    assert prices == [200, 420, 80, 380, 320, None, None, 699, None, 1299, None]
-    # Karte 2006+2010+2012+2014 haben keinen Euro-Wert (VB/Verschenken/Tausch)
+    assert prices == [200, 420, 80, 380, 320, None, None, 699, None, 1299, None, None]
+    # Karten mit None: 2006/2010/2012/2014 (VB/Verschenken/Tausch),
+    # 2015 (kein Preisfeld).
 
 
 def test_parse_search_price_types(synthetic_offers):
     """preis_typ wird für jede Karte korrekt aus dem Preisfeld abgeleitet."""
     types = [o["preis_typ"] for o in synthetic_offers]
-    # 2001..2005 = fest (Zahl + €), 2006 = VB-only (kein Euro-Wert)
-    # 2010 = VB-only, 2011 = VB mit Zahl → vb, 2012 = verschenken,
-    # 2013 = Tausenderpunkt fest, 2014 = Tausch
+    # 2015 hat kein Preisfeld → preis_typ ist None
     assert types == [
         "fest", "fest", "fest", "fest", "fest", "vb",
-        "vb", "vb", "verschenken", "fest", "tausch",
+        "vb", "vb", "verschenken", "fest", "tausch", None,
     ]
 
 
@@ -160,6 +159,9 @@ def test_parse_search_accept_akzeptanz(synthetic_offers):
     # Tausch
     assert by_id["2014"]["preis_euro"] is None
     assert by_id["2014"]["preis_typ"] == "tausch"
+    # Karte ohne Preisfeld → beides None (nicht irreführend "fest")
+    assert by_id["2015"]["preis_euro"] is None
+    assert by_id["2015"]["preis_typ"] is None
 
 
 def test_parse_search_locations(synthetic_offers):
@@ -176,6 +178,7 @@ def test_parse_search_locations(synthetic_offers):
         ("20095", "Hamburg Altstadt"),
         ("10115", "Berlin Mitte"),
         ("10405", "Berlin Prenzlauer Berg"),
+        ("80331", "München Zentrum"),
     ]
 
 
@@ -183,7 +186,7 @@ def test_parse_search_sender_types(synthetic_offers):
     types = [o["versender_typ"] for o in synthetic_offers]
     assert types == [
         "privat", "gewerblich", "privat", "privat", "gewerblich", "privat",
-        "privat", "privat", "privat", "gewerblich", "privat",
+        "privat", "privat", "privat", "gewerblich", "privat", "privat",
     ]
 
 
@@ -191,7 +194,7 @@ def test_parse_search_shipping(synthetic_offers):
     versand = [o["versand_moeglich"] for o in synthetic_offers]
     assert versand == [
         True, True, False, True, True, False,
-        True, True, False, True, False,
+        True, True, False, True, False, False,
     ]
 
 
@@ -241,17 +244,17 @@ def _ns(**kwargs):
 def test_client_filter_min_price(synthetic_offers):
     out = _client_filter(_ns(min_price=300), synthetic_offers)
     # >=300: 2002 (420), 2004 (380), 2005 (320), 2011 (699), 2013 (1299).
-    # None-Werte (2006/2010/2012/2014) bleiben; alles in Original-Reihenfolge.
+    # None-Werte (2006/2010/2012/2014/2015) bleiben; Original-Reihenfolge.
     assert [o["id"] for o in out] == [
-        "2002", "2004", "2005", "2006", "2010", "2011", "2012", "2013", "2014",
+        "2002", "2004", "2005", "2006", "2010", "2011", "2012", "2013", "2014", "2015",
     ]
 
 
 def test_client_filter_max_price(synthetic_offers):
     out = _client_filter(_ns(max_price=200), synthetic_offers)
-    # ≤200: 2001 (200), 2003 (80); None bleibt (2006/2010/2012/2014)
+    # ≤200: 2001 (200), 2003 (80); None bleibt (2006/2010/2012/2014/2015)
     assert [o["id"] for o in out] == [
-        "2001", "2003", "2006", "2010", "2012", "2014",
+        "2001", "2003", "2006", "2010", "2012", "2014", "2015",
     ]
 
 
@@ -265,7 +268,7 @@ def test_client_filter_only_private(synthetic_offers):
     out = _client_filter(_ns(only_private=True), synthetic_offers)
     # alle außer 2002, 2005, 2013
     assert [o["id"] for o in out] == [
-        "2001", "2003", "2004", "2006", "2010", "2011", "2012", "2014",
+        "2001", "2003", "2004", "2006", "2010", "2011", "2012", "2014", "2015",
     ]
 
 

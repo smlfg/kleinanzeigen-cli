@@ -168,8 +168,14 @@ def parse_card(card_html: str) -> Optional[dict]:
     # der bei Anzeigen-IDs und Slugs in die Irre laufen kann).
     # Liefert z.B. "1.690 €", "699 € VB", "VB", "Zu verschenken".
     price_field = _price_field(card_html)
-    price = _eur_to_int(price_field) if price_field else None
-    price_type = _price_type(price_field) if price_field else "fest"
+    if price_field is None:
+        # Die Karte hat überhaupt kein Preisfeld (z.B. reine Tausch-
+        # Anzeige oder kaputter Eintrag). Wir liefern None für beides.
+        price = None
+        price_type = None
+    else:
+        price = _eur_to_int(price_field)
+        price_type = _price_type(price_field)
 
     # Ort (PLZ + Ort)
     ort = None

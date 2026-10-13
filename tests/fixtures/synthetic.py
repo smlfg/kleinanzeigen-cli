@@ -15,7 +15,8 @@ def _card(adid: str, *, title: str, plz: str, ort: str,
           versand: bool, sender: str, beschreibung: str,
           slug_path: str = "s-handy-telefon",
           price: int | None = None,
-          price_label: str | None = None) -> str:
+          price_label: str | None = None,
+          has_price_field: bool = True) -> str:
     """Baut eine <article data-adid=…>-Karte.
 
     `price_label` (optional) überschreibt den angezeigten Preistext. Wenn
@@ -24,10 +25,15 @@ def _card(adid: str, *, title: str, plz: str, ort: str,
     "1 € VB", "Preis auf Anfrage", "1.299 €"). `price` (int|None) wird
     dann ignoriert – er wird aus `price_label` abgeleitet, falls eine
     Zahl drin steht.
+
+    `has_price_field=False` lässt das Preisfeld weg (Live-Sonderfall:
+    reine Tausch-/Gesuch-Anzeigen haben teils kein Preisfeld).
     """
     sender_label = "Privater Nutzer" if sender == "privat" else "Gewerblicher Verkäufer"
     versand_label = '<span class="badge-shipping">Versand möglich</span>' if versand else ""
-    if price_label is not None:
+    if not has_price_field:
+        price_html = ""
+    elif price_label is not None:
         # genau so, wie die Live-Site das Feld rendert
         price_html = f'<p class="aditem-price">{price_label}</p>'
     elif price is not None:
@@ -87,6 +93,7 @@ SYNTHETIC_SEARCH = f"""<!DOCTYPE html>
     {_ad(2012, title="iPhone 12 (zu verschenken)",     plz="20095", ort="Hamburg Altstadt",      price_label="Zu verschenken",      versand=False, sender="privat",     beschreibung="Verschenke das Gerät.")}
     {_ad(2013, title="iPhone 12 Pro Max",              plz="10115", ort="Berlin Mitte",          price_label="1.299 €",            versand=True,  sender="gewerblich", beschreibung="Tausenderpunkt mit Punkt.")}
     {_ad(2014, title="MacBook Pro 13 Tausch",          plz="10405", ort="Berlin Prenzlauer Berg", price_label="Tausche",            versand=False, sender="privat",     beschreibung="Tausche gegen Roller.")}
+    {_ad(2015, title="MacBook Pro ohne Preisfeld",      plz="80331", ort="München Zentrum",       price=None, versand=False, sender="privat",     beschreibung="Nur Tausch, kein Preis.", has_price_field=False)}
   </ul>
 </main>
 </body>
