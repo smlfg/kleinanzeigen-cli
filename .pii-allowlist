@@ -1,0 +1,22 @@
+# pii-guard allowlist - every exception to "no e-mail addresses in the repo"
+# must be listed here explicitly, with a short reason. See scripts/pii_guard.py.
+
+# Owner (GitHub noreply address, the only real address allowed)
+186922365+smlfg@users.noreply.github.com
+
+# Placeholders reserved for documentation (RFC 2606), incl. subdomains
+domain:example.com
+domain:example.org
+domain:example.net
+# Reserved TLDs (RFC 2606/6761), never deliverable
+domain:example
+domain:invalid
+domain:test
+domain:localhost
+
+# GitHub bots / system addresses (not personal data)
+noreply@github.com
+*[bot]@users.noreply.github.com
+
+# Path exclusions (only lockfiles/generated files that cause false positives)
+# none needed so far

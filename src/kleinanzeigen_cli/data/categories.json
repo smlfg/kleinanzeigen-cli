@@ -1,0 +1,22 @@
+{
+  "elektronik":  {"id": "c161", "name": "Elektronik"},
+  "handy-telefon": {"id": "c173", "name": "Handy & Telefon"},
+  "computer":   {"id": "c225", "name": "Computer"},
+  "haushalt":   {"id": "c176", "name": "Haushaltsgeräte"},
+  "moebel":     {"id": "c192", "name": "Möbel & Wohnen"},
+  "kleidung":   {"id": "c189", "name": "Kleidung & Accessoires"},
+  "buecher":    {"id": "c211", "name": "Bücher"},
+  "spielzeug":  {"id": "c237", "name": "Spielzeug"},
+  "fahrrad":    {"id": "c217", "name": "Fahrräder"},
+  "auto":       {"id": "c216", "name": "Autos"},
+  "motorrad":   {"id": "c305", "name": "Motorräder"},
+  "fahrzeugteile": {"id": "c227", "name": "Auto-Ersatzteile & Reifen"},
+  "haus-und-garten": {"id": "c80", "name": "Haus & Garten"},
+  "diy":        {"id": "c84", "name": "Heimwerken"},
+  "tier":       {"id": "c272", "name": "Tiere"},
+  "sport":      {"id": "c230", "name": "Sport"},
+  "musik":      {"id": "c242", "name": "Musikinstrumente"},
+  "baby":       {"id": "c228", "name": "Baby & Kind"},
+  "immobilien": {"id": "c195", "name": "Immobilien (Mieten & Kaufen)"},
+  "jobs":       {"id": "c102", "name": "Jobs"}
+}
