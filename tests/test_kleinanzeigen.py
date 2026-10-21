@@ -324,6 +324,73 @@ def test_cli_help_watch():
         assert opt in r.stdout
 
 
+def _minimal_search_html(adids: list[str]) -> str:
+    cards = []
+    for adid in adids:
+        cards.append(
+            f'<article class="aditem" data-adid="{adid}">'
+            '<script type="application/ld+json">'
+            '{"@context":"https://schema.org","@type":"Product",'
+            '"title":"t","description":"d"}'
+            "</script></article>"
+        )
+    body = "\n".join(cards)
+    return (
+        "<!DOCTYPE html><html><body><main id='srchrslt-content'>"
+        f"<ul class='item-list'>{body}</ul></main></body></html>"
+    )
+
+
+def _watch_namespace(**overrides):
+    defaults = {
+        "name": "t",
+        "query": "x",
+        "category": None,
+        "location": None,
+        "radius": None,
+        "min_price": None,
+        "max_price": None,
+        "offer_type": None,
+        "sender_type": None,
+        "only_shipping": False,
+        "sorting": None,
+        "limit": 3,
+        "json": True,
+    }
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
+
+
+def test_cli_watch_keeps_seen_ids_when_pushed_off_page(tmp_path, monkeypatch):
+    """Gesehene IDs bleiben gemerkt, auch wenn sie aus den Top-N rutschen."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    pages = [["1", "2", "3"], ["4", "2", "3"], ["1", "2", "3"]]
+    calls = {"n": 0}
+
+    class _Http:
+        def get(self, url, **k):
+            from kleinanzeigen_cli.http_client import Response
+
+            html = _minimal_search_html(pages[calls["n"]])
+            calls["n"] += 1
+            return Response(status=200, url=url, text=html)
+
+    monkeypatch.setattr(_cli_mod, "HttpClient", _Http)
+    captured = []
+
+    def _capture(payload, as_json):
+        captured.append(payload)
+
+    monkeypatch.setattr(_cli_mod, "_emit", _capture)
+    for _ in range(3):
+        assert _cli_mod.cmd_watch(_watch_namespace()) == 0
+
+    assert [p["anzahl_neu"] for p in captured] == [3, 1, 0]
+    assert [
+        p["neue_anzeigen"][0]["id"] if p["neue_anzeigen"] else None for p in captured
+    ] == ["1", "4", None]
+
+
 def test_cli_categories_emits_json():
     r = _run_cli("categories", "--json")
     assert r.returncode == 0
