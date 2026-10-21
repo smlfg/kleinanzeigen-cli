@@ -254,12 +254,43 @@ def test_parse_detail_basic():
     assert d["id"] == "2001"
     assert d["titel"] == "iPhone 12 64GB schwarz"
     assert d["preis_euro"] == 200
+    assert d["preis_typ"] == "fest"
     assert d["plz"] == "10115"
     assert d["ort"] == "Berlin Mitte"
     assert d["versand_moeglich"] is True
     assert d["versender_typ"] == "privat"
+    assert d["beschreibung_kurz"] == "Top gepflegt, Originaltasche dabei."
     assert "Top gepflegt" in d["beschreibung_text"]
     assert d["url"].startswith("https://www.kleinanzeigen.de/")
+
+
+def _live_style_detail_html() -> str:
+    """Detailseite wie Live (2026): Preis in <h2 class=boxedarticle--price>, Breadcrumb."""
+    return """<!DOCTYPE html>
+<html lang="de">
+<head>
+<link rel="canonical" href="https://www.kleinanzeigen.de/s-anzeige/fahrrad/3497734632-280-3396"/>
+<script type="application/ld+json">
+{"title":"Fahrrad","description":"Kurz auf dem Markt in Berlin."}
+</script>
+</head>
+<body>
+<div id="vap-brdcrmb" class="breadcrump">
+  <a class="breadcrump-link" href="/s-auto-rad-boot/c210">Auto</a>
+  <a class="breadcrump-link" href="/s-reparaturen-dienstleistungen/c280">Reparatur</a>
+</div>
+<h2 class="boxedarticle--price" id="viewad-price">100 € VB</h2>
+<span>10245 Berlin Neukölln</span>
+</body>
+</html>"""
+
+
+def test_parse_detail_live_price_h2_and_meta_fields():
+    d = parser.parse_detail(_live_style_detail_html(), adid="3497734632")
+    assert d["preis_euro"] == 100
+    assert d["preis_typ"] == "vb"
+    assert d["kategorie_pfad"] == "s-reparaturen-dienstleistungen"
+    assert d["beschreibung_kurz"] == "Kurz auf dem Markt in Berlin."
 
 
 # ---------- Client-Filter ----------
