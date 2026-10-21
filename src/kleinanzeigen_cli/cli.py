@@ -410,8 +410,13 @@ def cmd_chats_send(args: argparse.Namespace) -> int:
 # ---------- Argument-Parser ----------
 
 
+class _KleinanzeigenArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> NoReturn:
+        _err(message, code=1)
+
+
 def _build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
+    p = _KleinanzeigenArgumentParser(
         prog="kleinanzeigen",
         description=(
             "kleinanzeigen – Agent-CLI für kleinanzeigen.de "
