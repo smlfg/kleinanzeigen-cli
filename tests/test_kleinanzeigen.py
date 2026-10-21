@@ -80,7 +80,15 @@ def test_build_url_filters():
     assert "senderType=PRIVAT" in u
     assert "shipping=true" in u
     assert "sorting=PRICE_ASCENDING" in u
-    assert "page=2" in u
+    assert "/seite:2/" in u
+    assert "page=2" not in u
+
+
+def test_build_url_page_keywords_location_matches_live_pagination():
+    u = searchmod.build_search_url(keywords="Fahrrad", location=3331, page=2)
+    assert u == (
+        "https://www.kleinanzeigen.de/s-fahrrad/seite:2/k0l3331?keywords=Fahrrad"
+    )
 
 
 def test_build_url_rejects_empty():
