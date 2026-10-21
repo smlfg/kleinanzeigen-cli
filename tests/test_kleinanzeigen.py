@@ -583,6 +583,84 @@ def test_cli_chats_list_without_login(tmp_path):
     assert "Nicht eingeloggt" in r.stderr
 
 
+def _fake_logged_in_session(tmp_path, monkeypatch, *, user_id="99"):
+    """Session mit gültigem Access-Token (kein Auth0-Refresh nötig)."""
+    monkeypatch.setattr(_auth_mod, "config_path", lambda: str(tmp_path))
+    (tmp_path / "session.json").write_text(
+        json.dumps(
+            {
+                "refresh_token": "RT-FAKE",
+                "access_token": "AT-FAKE",
+                "expires_at": 99999999999,
+                "email": "alice@example.com",
+                "user_id": user_id,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_chats_list_network_error_raises_runtime_error(monkeypatch, tmp_path):
+    _fake_logged_in_session(tmp_path, monkeypatch)
+    s = _auth_mod.Session()
+    import requests as _req
+
+    def _offline(*_a, **_k):
+        raise _req.exceptions.ConnectionError("offline")
+
+    monkeypatch.setattr(_req, "get", _offline)
+    with pytest.raises(RuntimeError, match="conversations"):
+        _chats_mod.list_conversations(s)
+
+
+def test_cli_chats_list_network_error_exit_3_json(monkeypatch, tmp_path):
+    import argparse
+    import requests as _req
+
+    _fake_logged_in_session(tmp_path, monkeypatch)
+
+    def _offline(*_a, **_k):
+        raise _req.exceptions.ConnectionError("offline")
+
+    monkeypatch.setattr(_req, "get", _offline)
+    args = argparse.Namespace(page=0, size=100, json=True)
+    with pytest.raises(SystemExit) as exc:
+        _cli_mod.cmd_chats_list(args)
+    assert exc.value.code == 3
+
+
+def test_cli_chats_read_network_error_exit_3_json(monkeypatch, tmp_path):
+    import argparse
+    import requests as _req
+
+    _fake_logged_in_session(tmp_path, monkeypatch)
+
+    def _offline(*_a, **_k):
+        raise _req.exceptions.ConnectionError("offline")
+
+    monkeypatch.setattr(_req, "put", _offline)
+    args = argparse.Namespace(id="123", json=True)
+    with pytest.raises(SystemExit) as exc:
+        _cli_mod.cmd_chats_read(args)
+    assert exc.value.code == 3
+
+
+def test_cli_chats_send_network_error_exit_3_json(monkeypatch, tmp_path):
+    import argparse
+    import requests as _req
+
+    _fake_logged_in_session(tmp_path, monkeypatch)
+
+    def _offline(*_a, **_k):
+        raise _req.exceptions.ConnectionError("offline")
+
+    monkeypatch.setattr(_req, "post", _offline)
+    args = argparse.Namespace(id="123", text="x", confirm=True, json=True)
+    with pytest.raises(SystemExit) as exc:
+        _cli_mod.cmd_chats_send(args)
+    assert exc.value.code == 3
+
+
 def test_cli_chats_send_requires_confirm(tmp_path, monkeypatch):
     """Ohne --confirm: Exit 5, kein HTTP-Call."""
     # Session in tmp_path anlegen (via Subprozess-Login mit env-Token)
