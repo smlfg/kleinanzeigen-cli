@@ -659,3 +659,86 @@ def test_cli_login_browser_path_errors(tmp_path):
     # playwright ist in venv nicht installiert → expect exit 4
     assert r.returncode == 4
     assert "playwright" in r.stderr.lower()
+
+
+def test_perform_login_uses_callback_url_for_token_exchange(
+    monkeypatch, tmp_path
+):
+    """Nach Playwright-Redirect muss die Callback-URL (nicht nur code) an complete_login."""
+    import kleinanzeigen_cli.login as _login_mod
+    import playwright.sync_api as _psa
+    import requests as _req
+
+    monkeypatch.setattr(_auth_mod, "config_path", lambda: str(tmp_path))
+
+    callback_url = (
+        "https://login.kleinanzeigen.de/android/com.ebay.kleinanzeigen/callback"
+        "?code=FAKECODE123&state=xyz"
+    )
+
+    class _FakePage:
+        url = callback_url
+
+        def goto(self, *args, **kwargs):
+            pass
+
+        def wait_for_url(self, *args, **kwargs):
+            pass
+
+        def content(self):
+            return ""
+
+    class _FakeBrowser:
+        def new_context(self, **kwargs):
+            class _Ctx:
+                def new_page(self):
+                    return _FakePage()
+
+            return _Ctx()
+
+        def close(self):
+            pass
+
+    class _FakeChromium:
+        def launch(self, **kwargs):
+            return _FakeBrowser()
+
+    class _FakePlaywright:
+        chromium = _FakeChromium()
+
+    import contextlib
+
+    @contextlib.contextmanager
+    def _fake_sync_playwright():
+        yield _FakePlaywright()
+
+    monkeypatch.setattr(_login_mod, "_has_playwright", lambda: True)
+    monkeypatch.setattr(_psa, "sync_playwright", _fake_sync_playwright)
+
+    exchanged_codes: list[str] = []
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        if json and json.get("grant_type") == "authorization_code":
+            exchanged_codes.append(json.get("code"))
+        class _R:
+            status_code = 200
+            text = "{}"
+
+            def json(self):
+                return {
+                    "access_token": "AT",
+                    "refresh_token": "RT-BROWSER",
+                    "expires_in": 3600,
+                    "id_token": _make_id_token("browser@example.com"),
+                }
+
+        return _R()
+
+    monkeypatch.setattr(_req, "post", fake_post)
+
+    info = _login_mod.perform_login()
+    assert info["logged_in"] is True
+    assert exchanged_codes == ["FAKECODE123"]
+    sess_path = tmp_path / "session.json"
+    assert sess_path.exists()
+    assert json.loads(sess_path.read_text())["refresh_token"] == "RT-BROWSER"
