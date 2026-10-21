@@ -10,9 +10,10 @@ https://www.kleinanzeigen.de, gedacht für KI-Agenten und Menschen:
   Versender-Typ.
 - **Kategorien**: kuratierte Liste der wichtigsten Slugs (Auto,
   Elektronik, Möbel, Immobilien …).
-- **Lokaler Suchauftrag** (`watch`): nur die **IDs neuer** Anzeigen
+- **Lokaler Suchauftrag** (`watch`): alle bereits gesehenen Anzeigen-IDs
   werden in `~/.local/state/kleinanzeigen-cli/watch/<name>.json`
-  gemerkt; es wird **nichts** nach außen geschickt.
+  gemerkt (auch wenn sie vorübergehend aus den Top-N rutschen); nur
+  **neue** IDs werden gemeldet. Es wird **nichts** nach außen geschickt.
 - **Login + Chats** (optional, mit Account): Konversationen auflisten,
   lesen und *mit explizitem* `--confirm` antworten.
 
