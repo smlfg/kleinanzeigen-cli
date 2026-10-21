@@ -252,11 +252,14 @@ def cmd_watch(args: argparse.Namespace) -> int:
         _err(f"Parse-Fehler: {e}", code=6, url=url)
 
     path = _watch_path(args.name)
-    seen = set(read_json(path, default=[]) or [])
+    seen_list = read_json(path, default=[]) or []
+    seen = set(seen_list)
     current_ids = [o["id"] for o in offers]
     new_ids = [i for i in current_ids if i not in seen]
     # Persistieren: gesehen + current_ids (Reihenfolge = neueste zuerst).
-    write_json(path, current_ids)
+    current_set = set(current_ids)
+    persisted = list(current_ids) + [i for i in seen_list if i not in current_set]
+    write_json(path, persisted)
 
     payload = {
         "quelle": "https://www.kleinanzeigen.de",
