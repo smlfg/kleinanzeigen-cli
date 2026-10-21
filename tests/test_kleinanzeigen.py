@@ -367,6 +367,69 @@ import kleinanzeigen_cli.chats as _chats_mod
 import kleinanzeigen_cli.cli as _cli_mod
 
 
+# ---------- Parse-Fehler (kein Login-Exit 4) ----------
+
+_EMPTY_SEARCH_HTML = "<html><body><main>Keine Treffer</main></body></html>"
+
+
+class _EmptySearchHttp:
+    def get(self, url, **k):
+        from kleinanzeigen_cli.http_client import Response
+
+        return Response(status=200, url=url, text=_EMPTY_SEARCH_HTML)
+
+
+def _search_namespace(**overrides):
+    import argparse
+
+    defaults = {
+        "query": "iPhone",
+        "category": None,
+        "location": None,
+        "radius": None,
+        "min_price": None,
+        "max_price": None,
+        "offer_type": None,
+        "sender_type": None,
+        "only_shipping": False,
+        "only_private": False,
+        "only_commercial": False,
+        "sorting": None,
+        "page": None,
+        "limit": 25,
+        "json": True,
+    }
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
+
+
+def test_cli_search_parse_error_exit_6_not_login(monkeypatch):
+    monkeypatch.setattr(_cli_mod, "HttpClient", _EmptySearchHttp)
+    with pytest.raises(SystemExit) as exc:
+        _cli_mod.cmd_search(_search_namespace())
+    assert exc.value.code == 6
+
+
+def test_cli_show_parse_error_exit_6_not_login(monkeypatch):
+    import argparse
+
+    from kleinanzeigen_cli.http_client import ParseError, Response
+
+    class _Http:
+        def get(self, url, **k):
+            return Response(status=200, url=url, text="<html></html>")
+
+    def _parse_fail(*_a, **_k):
+        raise ParseError("Detail-Layout unbekannt")
+
+    monkeypatch.setattr(_cli_mod, "HttpClient", _Http)
+    monkeypatch.setattr(_cli_mod.parser, "parse_detail", _parse_fail)
+    args = argparse.Namespace(ad="12345", json=True)
+    with pytest.raises(SystemExit) as exc:
+        _cli_mod.cmd_show(args)
+    assert exc.value.code == 6
+
+
 def test_session_persists_refresh_token(tmp_path, monkeypatch):
     """Session-File wird geschrieben, chmod 0600 angestrebt, logout löscht."""
     sess_path = tmp_path / "session.json"
