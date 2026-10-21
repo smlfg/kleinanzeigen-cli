@@ -173,15 +173,18 @@ class Session:
 
         Wirft ``RuntimeError`` bei Nicht-200-Antwort (mit Body fürs Log).
         """
-        r = requests.post(
-            AUTH0_TOKEN,
-            json=payload,
-            headers={
-                "Accept": "application/json",
-                "User-Agent": f"Kleinanzeigen/{APP_VERSION} (Android 13; Pixel 7)",
-            },
-            timeout=timeout,
-        )
+        try:
+            r = requests.post(
+                AUTH0_TOKEN,
+                json=payload,
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": f"Kleinanzeigen/{APP_VERSION} (Android 13; Pixel 7)",
+                },
+                timeout=timeout,
+            )
+        except requests.RequestException as e:
+            raise RuntimeError(f"Auth0 /oauth/token: {e}") from e
         if r.status_code != 200:
             raise RuntimeError(
                 f"Auth0 /oauth/token → {r.status_code}: {r.text[:300]}"

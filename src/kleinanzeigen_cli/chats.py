@@ -32,6 +32,14 @@ API = "https://api.kleinanzeigen.de"
 APP_VERSION = "2026.25.0"
 
 
+def _net_call(label: str, fn):
+    """Führt einen requests-Call aus; Netzwerkfehler → RuntimeError (Exit 3 im CLI)."""
+    try:
+        return fn()
+    except requests.RequestException as e:
+        raise RuntimeError(f"{label}: {e}") from e
+
+
 def _user_id(session: Session) -> str:
     """Liefert die numerische Account-ID (lazy lookup)."""
     if session.user_id:
@@ -42,14 +50,17 @@ def _user_id(session: Session) -> str:
             "E-Mail fehlt in der Session – bitte neu einloggen."
         )
     # Profile-API (Basic-Auth wie die App).
-    r = requests.get(
-        f"{API}/api/users/{email}/profile.json",
-        headers={
-            "Authorization": "Basic " + _basic_b64(),
-            "Accept": "application/json",
-            "User-Agent": f"Kleinanzeigen/{APP_VERSION} (Android 13; Pixel 7)",
-        },
-        timeout=30,
+    r = _net_call(
+        "profile.json",
+        lambda: requests.get(
+            f"{API}/api/users/{email}/profile.json",
+            headers={
+                "Authorization": "Basic " + _basic_b64(),
+                "Accept": "application/json",
+                "User-Agent": f"Kleinanzeigen/{APP_VERSION} (Android 13; Pixel 7)",
+            },
+            timeout=30,
+        ),
     )
     if r.status_code != 200:
         raise RuntimeError(
@@ -92,11 +103,14 @@ def list_conversations(session: Session, *, page: int = 0, size: int = 100) -> l
     if not session.logged_in:
         raise auth.NotLoggedIn("Nicht eingeloggt – bitte zuerst `login`.")
     uid = _user_id(session)
-    r = requests.get(
-        f"{GATEWAY}/messagebox/api/users/{uid}/conversations",
-        params={"page": page, "size": size},
-        headers=session.auth_headers(),
-        timeout=30,
+    r = _net_call(
+        "conversations",
+        lambda: requests.get(
+            f"{GATEWAY}/messagebox/api/users/{uid}/conversations",
+            params={"page": page, "size": size},
+            headers=session.auth_headers(),
+            timeout=30,
+        ),
     )
     if r.status_code != 200:
         raise RuntimeError(
@@ -148,11 +162,14 @@ def read_conversation(session: Session, conversation_id: str) -> dict:
     uid = _user_id(session)
     if not conversation_id:
         raise ValueError("conversation_id fehlt")
-    r = requests.put(
-        f"{GATEWAY}/messagebox/api/users/{uid}/conversations/{conversation_id}",
-        params={"contentWarnings": "true"},
-        headers=session.auth_headers(),
-        timeout=30,
+    r = _net_call(
+        f"conversation {conversation_id}",
+        lambda: requests.put(
+            f"{GATEWAY}/messagebox/api/users/{uid}/conversations/{conversation_id}",
+            params={"contentWarnings": "true"},
+            headers=session.auth_headers(),
+            timeout=30,
+        ),
     )
     if r.status_code != 200:
         raise RuntimeError(
@@ -223,16 +240,19 @@ def send_message(
     if not text or not text.strip():
         raise ValueError("Leerer Text – nichts zu senden.")
     uid = _user_id(session)
-    r = requests.post(
-        f"{GATEWAY}/messagebox/api/users/{uid}/conversations/{conversation_id}",
-        params={
-            "warnPhoneNumber": "false",
-            "warnEmail": "false",
-            "warnBankDetails": "false",
-        },
-        json={"message": text},
-        headers=session.auth_headers(),
-        timeout=30,
+    r = _net_call(
+        f"send {conversation_id}",
+        lambda: requests.post(
+            f"{GATEWAY}/messagebox/api/users/{uid}/conversations/{conversation_id}",
+            params={
+                "warnPhoneNumber": "false",
+                "warnEmail": "false",
+                "warnBankDetails": "false",
+            },
+            json={"message": text},
+            headers=session.auth_headers(),
+            timeout=30,
+        ),
     )
     if r.status_code not in (200, 201, 204):
         raise RuntimeError(
