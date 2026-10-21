@@ -79,9 +79,17 @@ def test_build_url_filters():
     assert "offerType=GESUCH" in u
     assert "senderType=PRIVAT" in u
     assert "shipping=true" in u
-    assert "sorting=PRICE_ASCENDING" in u
+    assert "sortingField=PRICE_AMOUNT" in u
+    assert "sorting=" not in u
     assert "/seite:2/" in u
     assert "page=2" not in u
+
+
+def test_build_url_sorting_maps_cli_values_to_sorting_field():
+    u = searchmod.build_search_url(keywords="x", sorting="PRICE_DESCENDING")
+    assert "sortingField=PRICE_AMOUNT_DESC" in u
+    u = searchmod.build_search_url(keywords="x", sorting="DATE_DESCENDING")
+    assert "sortingField=SORTING_DATE" in u
 
 
 def test_build_url_page_keywords_location_matches_live_pagination():
@@ -98,7 +106,7 @@ def test_build_url_rejects_empty():
 
 def test_build_url_does_not_include_unset():
     u = searchmod.build_search_url(keywords="iPhone", min_price=100)
-    for k in ("maxPrice", "offerType", "senderType", "shipping", "sorting", "page"):
+    for k in ("maxPrice", "offerType", "senderType", "shipping", "sorting", "sortingField", "page"):
         assert k not in u
 
 
@@ -312,6 +320,7 @@ def _ns(**kwargs):
         "only_private": False,
         "only_commercial": False,
         "offer_type": None,
+        "sorting": None,
         "limit": None,
     }
     defaults.update(kwargs)
@@ -358,6 +367,27 @@ def test_client_filter_only_commercial(synthetic_offers):
 def test_client_filter_limit(synthetic_offers):
     out = _client_filter(_ns(limit=2), synthetic_offers)
     assert len(out) == 2
+
+
+def test_client_filter_sorting_price_ascending():
+    """Issue #9: unsortierte Server-Reihenfolge wird clientseitig korrigiert."""
+    offers = [
+        {"id": str(i), "preis_euro": p}
+        for i, p in enumerate([None, 1899, 34, 10, 200, 10, 439, 20, 10, 140, 3, 10])
+    ]
+    out = _client_filter(_ns(sorting="PRICE_ASCENDING"), offers)
+    nums = [o["preis_euro"] for o in out if o["preis_euro"] is not None]
+    assert nums == sorted(nums)
+
+
+def test_client_filter_sorting_price_descending():
+    offers = [
+        {"id": str(i), "preis_euro": p}
+        for i, p in enumerate([10, None, 200, 3, 50])
+    ]
+    out = _client_filter(_ns(sorting="PRICE_DESCENDING"), offers)
+    nums = [o["preis_euro"] for o in out if o["preis_euro"] is not None]
+    assert nums == sorted(nums, reverse=True)
 
 
 # ---------- CLI Subprozess ----------
