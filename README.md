@@ -77,6 +77,10 @@ kleinanzeigen chats send  <conversation-id>
 kleinanzeigen.de einen Ort in der Sidebar auswählst und den Wert aus
 der URL kopierst.
 
+`--only-private` / `--only-commercial` setzen `senderType` in der Such-URL
+und filtern zusätzlich nach `versender_typ` (aus dem eingebetteten
+Seiten-Payload, falls die Karte keinen Versender-Text mehr enthält).
+
 ## Beispiele
 
 ```bash
