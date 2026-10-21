@@ -665,8 +665,10 @@ def test_perform_login_uses_callback_url_for_token_exchange(
     monkeypatch, tmp_path
 ):
     """Nach Playwright-Redirect muss die Callback-URL (nicht nur code) an complete_login."""
+    import contextlib
+    import types
+
     import kleinanzeigen_cli.login as _login_mod
-    import playwright.sync_api as _psa
     import requests as _req
 
     monkeypatch.setattr(_auth_mod, "config_path", lambda: str(tmp_path))
@@ -706,14 +708,18 @@ def test_perform_login_uses_callback_url_for_token_exchange(
     class _FakePlaywright:
         chromium = _FakeChromium()
 
-    import contextlib
-
     @contextlib.contextmanager
     def _fake_sync_playwright():
         yield _FakePlaywright()
 
+    _sync_api = types.ModuleType("playwright.sync_api")
+    _sync_api.sync_playwright = _fake_sync_playwright
+    _playwright = types.ModuleType("playwright")
+    _playwright.sync_api = _sync_api
+    monkeypatch.setitem(sys.modules, "playwright", _playwright)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", _sync_api)
+
     monkeypatch.setattr(_login_mod, "_has_playwright", lambda: True)
-    monkeypatch.setattr(_psa, "sync_playwright", _fake_sync_playwright)
 
     exchanged_codes: list[str] = []
 
