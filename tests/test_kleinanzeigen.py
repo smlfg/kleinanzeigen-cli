@@ -190,6 +190,39 @@ def test_parse_search_sender_types(synthetic_offers):
     ]
 
 
+def _live_style_search_html(adid: str, poster: str) -> str:
+    """Suchseite wie Live (2026): Karte ohne Versender-Span, Typ im RSC-Payload."""
+    seo = f"/s-anzeige/test-artikel/{adid}-173-1"
+    rsc = (
+        f'&quot;seoLink&quot;:[0,&quot;{seo}&quot;],'
+        f'&quot;price&quot;:[0,&quot;100 &euro;&quot;],'
+        f'&quot;posterType&quot;:[0,&quot;{poster}&quot;]'
+    )
+    card = (
+        f'<article class="flex" data-adid="{adid}" data-href="{seo}">'
+        '<script type="application/ld+json">'
+        '{"title":"Test","description":"Kurzbeschreibung fuer die Karte"}'
+        "</script>"
+        '<p class="text-secondary">100 &euro;</p>'
+        "<span>10115 Berlin Mitte</span>"
+        "</article>"
+    )
+    return f"<html><body>{rsc}{card}</body></html>"
+
+
+def test_parse_search_poster_type_from_rsc_payload():
+    """Live-Karten tragen keinen Versender-Text mehr; Typ steht im Seiten-Payload."""
+    html = _live_style_search_html("99001", "PRIVATE")
+    offers = parser.parse_search(html, limit=5)
+    assert offers[0]["versender_typ"] == "privat"
+
+
+def test_parse_search_poster_type_commercial_from_rsc_payload():
+    html = _live_style_search_html("99002", "COMMERCIAL")
+    offers = parser.parse_search(html, limit=5)
+    assert offers[0]["versender_typ"] == "gewerblich"
+
+
 def test_parse_search_shipping(synthetic_offers):
     versand = [o["versand_moeglich"] for o in synthetic_offers]
     assert versand == [
