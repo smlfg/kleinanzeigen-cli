@@ -5,7 +5,7 @@ Beobachtet 2026-10-13 per Live-Smoke. Standard-Pfad:
     ?keywords=…&minPrice=…&maxPrice=…&offerType=ANZEIGE|GESUCH
     &senderType=PRIVAT|GEWERBLICH&shipping=true|false
     &sorting=PRICE_ASCENDING|PRICE_DESCENDING|DATE_ASCENDING|…
-    &page=<n>
+    /seite:<n>/…  (ab Seite 2; ?page= wird serverseitig ignoriert)
 
 Bei reiner Stichwortsuche (kein Slug) führt die Seite ohnehin auf eine
 große Suchseite; wir übergeben einfach den `keywords=`-Parameter.
@@ -122,7 +122,10 @@ def build_search_url(
         parts.append(f"l{int(location)}")
     if radius:
         parts.append(f"r{int(radius)}")
-    path += "/" + "".join(parts)
+    k0 = "/" + "".join(parts)
+    if page and page > 1:
+        path += f"/seite:{int(page)}"
+    path += k0
 
     q: dict[str, str] = {}
     if keywords:
@@ -139,8 +142,6 @@ def build_search_url(
         q["shipping"] = "true"
     if sorting:
         q["sorting"] = sorting
-    if page and page > 1:
-        q["page"] = str(int(page))
 
     base = BASE
     if not q:
