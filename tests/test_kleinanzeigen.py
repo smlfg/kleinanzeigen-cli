@@ -62,6 +62,11 @@ def test_build_url_category_and_location():
     assert "maxPrice=500" in u
 
 
+def test_build_url_only_private_maps_sender_type():
+    u = searchmod.build_search_url(keywords="iPhone 12", sender_type="PRIVAT")
+    assert "senderType=PRIVAT" in u
+
+
 def test_build_url_filters():
     u = searchmod.build_search_url(
         category="c173",
@@ -501,6 +506,35 @@ def _search_namespace(**overrides):
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
+
+
+def test_cli_search_only_private_filters_live_style_cards(monkeypatch):
+    """--only-private darf Live-Karten nicht wegfiltern, wenn posterType im Payload steht."""
+    from kleinanzeigen_cli.http_client import Response
+
+    html = (
+        _live_style_search_html("99001", "PRIVATE")
+        + _live_style_search_html("99002", "COMMERCIAL").replace("<html><body>", "").replace(
+            "</body></html>", ""
+        )
+    )
+
+    class _Http:
+        def get(self, url, **k):
+            assert "senderType=PRIVAT" in url
+            return Response(status=200, url=url, text=html)
+
+    captured = []
+
+    def _capture(payload, as_json):
+        captured.append(payload)
+
+    monkeypatch.setattr(_cli_mod, "HttpClient", _Http)
+    monkeypatch.setattr(_cli_mod, "_emit", _capture)
+    assert _cli_mod.cmd_search(_search_namespace(only_private=True)) == 0
+    assert captured[0]["anzahl"] == 1
+    assert captured[0]["anzeigen"][0]["id"] == "99001"
+    assert captured[0]["anzeigen"][0]["versender_typ"] == "privat"
 
 
 def test_cli_search_parse_error_exit_6_not_login(monkeypatch):

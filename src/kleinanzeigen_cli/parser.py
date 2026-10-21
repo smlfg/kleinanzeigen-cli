@@ -4,8 +4,10 @@ Strategien (Smoke-getestet am 2026-10-13):
 
 * Liste: jede Karte ist `<article data-adid="…">`. Die wichtigsten Felder
   liegen in einem eingebetteten `<script type="application/ld+json">…</script>`
-  (Titel + Beschreibung). Preis, Ort, Versand und Versender-Typ liegen im
-  Karten-HTML, gefiltert über `<span>`-Text innerhalb der Karte.
+  (Titel + Beschreibung). Preis, Ort und Versand liegen im Karten-HTML;
+  der Versender-Typ steht seit dem Layout-Update (2026) nicht mehr als
+  Span-Text in der Karte, sondern im eingebetteten RSC-Payload der Seite
+  (`posterType`: PRIVATE/COMMERCIAL, keyed über `seoLink`/Anzeigen-ID).
 
 * Detail: der Titel steht im JSON-LD; Preis in `<p class="boxedarticle--price">…</p>`;
   Beschreibung in JSON-LD + `<section class="adnote">`/`.adnote--content`.
@@ -29,6 +31,13 @@ BASE = "https://www.kleinanzeigen.de"
 _PRICE_RE = re.compile(r"(\d[\d.,]*)\s*(?:&euro;|€)")
 _PLZ_RE = re.compile(r"\b(\d{5})\s+([A-Za-zäöüÄÖÜß][A-Za-zäöüÄÖÜß \-/]{1,40})\b")
 _KAT_RE = re.compile(r"/(s-[a-z0-9\-]+)/")
+
+# RSC-Flight-Daten der Suchseite: posterType je Anzeige (Live ab ~2026-10).
+_POSTER_TYPE_RE = re.compile(
+    r'(?:&quot;|")seoLink(?:&quot;|"):\[0,(?:&quot;|")/s-anzeige/[^/]+/(\d+)-[^&"]+(?:&quot;|")\].{0,280}?'
+    r'(?:&quot;|")posterType(?:&quot;|"):\[0,(?:&quot;|")(PRIVATE|COMMERCIAL)(?:&quot;|")\]',
+    re.DOTALL,
+)
 
 # Marker für Preis-Typen, die im Preisfeld der Live-Site stehen.
 # Reihenfolge ist relevant: "VB" muss vor "verschenken" geprüft werden
@@ -138,6 +147,17 @@ def _price_type(price_text: str) -> str:
     return "fest"
 
 
+def _poster_types_from_search_html(html: str) -> dict[str, str]:
+    """Liest Versender-Typen aus dem Seiten-Payload (RSC), keyed by Anzeigen-ID."""
+    out: dict[str, str] = {}
+    for adid, poster in _POSTER_TYPE_RE.findall(html):
+        if poster == "PRIVATE":
+            out[adid] = "privat"
+        elif poster == "COMMERCIAL":
+            out[adid] = "gewerblich"
+    return out
+
+
 def _parse_card_top_spans(card_html: str) -> list[str]:
     """Sammelt direkt unter `<article>` enthaltene Text-Strings (Labels)."""
     soup = BeautifulSoup(card_html, "lxml")
@@ -231,6 +251,7 @@ def parse_card(card_html: str) -> Optional[dict]:
 def parse_search(html: str, *, limit: int = 25) -> list[dict]:
     """Parst die gesamte Ergebnisseite. Liefert max. `limit` Karten."""
     soup = BeautifulSoup(html, "lxml")
+    poster_types = _poster_types_from_search_html(html)
     results: list[dict] = []
     seen: set[str] = set()
     for art in soup.find_all("article", attrs={"data-adid": True}):
@@ -238,6 +259,8 @@ def parse_search(html: str, *, limit: int = 25) -> list[dict]:
         parsed = parse_card(h)
         if not parsed:
             continue
+        if parsed.get("versender_typ") is None:
+            parsed["versender_typ"] = poster_types.get(parsed["id"])
         if parsed["id"] in seen:
             continue
         seen.add(parsed["id"])
