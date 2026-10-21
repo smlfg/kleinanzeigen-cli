@@ -4,7 +4,9 @@ Beobachtet 2026-10-13 per Live-Smoke. Standard-Pfad:
     /s-<slug>/k0c{category}l{location}r{radius}
     ?keywords=…&minPrice=…&maxPrice=…&offerType=ANZEIGE|GESUCH
     &senderType=PRIVAT|GEWERBLICH&shipping=true|false
-    &sorting=PRICE_ASCENDING|PRICE_DESCENDING|DATE_ASCENDING|…
+    &sortingField=PRICE_AMOUNT|PRICE_AMOUNT_DESC|SORTING_DATE|…
+    (CLI-Werte PRICE_ASCENDING usw. werden auf sortingField gemappt;
+     der alte Query-Name ``sorting=`` wird von der Live-Site ignoriert.)
     /seite:<n>/…  (ab Seite 2; ?page= wird serverseitig ignoriert)
 
 Bei reiner Stichwortsuche (kein Slug) führt die Seite ohnehin auf eine
@@ -22,6 +24,20 @@ from urllib.parse import quote, urlparse
 DATA_PATH = Path(__file__).resolve().parent / "data" / "categories.json"
 
 BASE = "https://www.kleinanzeigen.de"
+
+# Live-Sortierauswahl (React-Dropdown, 2026-10): sortingField=…
+_SORTING_FIELD: dict[str, str] = {
+    "PRICE_ASCENDING": "PRICE_AMOUNT",
+    "PRICE_DESCENDING": "PRICE_AMOUNT_DESC",
+    "DATE_ASCENDING": "SORTING_DATE",
+    "DATE_DESCENDING": "SORTING_DATE",
+}
+
+
+def sorting_field_for_cli(sorting: str) -> str:
+    """Mappt CLI ``--sorting``-Werte auf den Live-Query ``sortingField``."""
+    key = (sorting or "").strip().upper()
+    return _SORTING_FIELD.get(key, key)
 
 
 def _load() -> dict:
@@ -141,7 +157,7 @@ def build_search_url(
     if shipping is True:
         q["shipping"] = "true"
     if sorting:
-        q["sorting"] = sorting
+        q["sortingField"] = sorting_field_for_cli(sorting)
 
     base = BASE
     if not q:
