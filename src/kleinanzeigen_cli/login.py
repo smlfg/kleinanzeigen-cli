@@ -143,8 +143,7 @@ def perform_login(
         raise RuntimeError(
             f"Login fehlgeschlagen (Auth0: {err})."
         )
-    code = m.group(1)
-    session.complete_login(code, verifier)
+    session.complete_login(final_url, verifier)
     return {
         "logged_in": True,
         "email": session.email,
