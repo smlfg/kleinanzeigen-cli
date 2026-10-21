@@ -62,6 +62,11 @@ def test_build_url_category_and_location():
     assert "maxPrice=500" in u
 
 
+def test_build_url_only_private_maps_sender_type():
+    u = searchmod.build_search_url(keywords="iPhone 12", sender_type="PRIVAT")
+    assert "senderType=PRIVAT" in u
+
+
 def test_build_url_filters():
     u = searchmod.build_search_url(
         category="c173",
@@ -190,6 +195,39 @@ def test_parse_search_sender_types(synthetic_offers):
     ]
 
 
+def _live_style_search_html(adid: str, poster: str) -> str:
+    """Suchseite wie Live (2026): Karte ohne Versender-Span, Typ im RSC-Payload."""
+    seo = f"/s-anzeige/test-artikel/{adid}-173-1"
+    rsc = (
+        f'&quot;seoLink&quot;:[0,&quot;{seo}&quot;],'
+        f'&quot;price&quot;:[0,&quot;100 &euro;&quot;],'
+        f'&quot;posterType&quot;:[0,&quot;{poster}&quot;]'
+    )
+    card = (
+        f'<article class="flex" data-adid="{adid}" data-href="{seo}">'
+        '<script type="application/ld+json">'
+        '{"title":"Test","description":"Kurzbeschreibung fuer die Karte"}'
+        "</script>"
+        '<p class="text-secondary">100 &euro;</p>'
+        "<span>10115 Berlin Mitte</span>"
+        "</article>"
+    )
+    return f"<html><body>{rsc}{card}</body></html>"
+
+
+def test_parse_search_poster_type_from_rsc_payload():
+    """Live-Karten tragen keinen Versender-Text mehr; Typ steht im Seiten-Payload."""
+    html = _live_style_search_html("99001", "PRIVATE")
+    offers = parser.parse_search(html, limit=5)
+    assert offers[0]["versender_typ"] == "privat"
+
+
+def test_parse_search_poster_type_commercial_from_rsc_payload():
+    html = _live_style_search_html("99002", "COMMERCIAL")
+    offers = parser.parse_search(html, limit=5)
+    assert offers[0]["versender_typ"] == "gewerblich"
+
+
 def test_parse_search_shipping(synthetic_offers):
     versand = [o["versand_moeglich"] for o in synthetic_offers]
     assert versand == [
@@ -216,12 +254,43 @@ def test_parse_detail_basic():
     assert d["id"] == "2001"
     assert d["titel"] == "iPhone 12 64GB schwarz"
     assert d["preis_euro"] == 200
+    assert d["preis_typ"] == "fest"
     assert d["plz"] == "10115"
     assert d["ort"] == "Berlin Mitte"
     assert d["versand_moeglich"] is True
     assert d["versender_typ"] == "privat"
+    assert d["beschreibung_kurz"] == "Top gepflegt, Originaltasche dabei."
     assert "Top gepflegt" in d["beschreibung_text"]
     assert d["url"].startswith("https://www.kleinanzeigen.de/")
+
+
+def _live_style_detail_html() -> str:
+    """Detailseite wie Live (2026): Preis in <h2 class=boxedarticle--price>, Breadcrumb."""
+    return """<!DOCTYPE html>
+<html lang="de">
+<head>
+<link rel="canonical" href="https://www.kleinanzeigen.de/s-anzeige/fahrrad/3497734632-280-3396"/>
+<script type="application/ld+json">
+{"title":"Fahrrad","description":"Kurz auf dem Markt in Berlin."}
+</script>
+</head>
+<body>
+<div id="vap-brdcrmb" class="breadcrump">
+  <a class="breadcrump-link" href="/s-auto-rad-boot/c210">Auto</a>
+  <a class="breadcrump-link" href="/s-reparaturen-dienstleistungen/c280">Reparatur</a>
+</div>
+<h2 class="boxedarticle--price" id="viewad-price">100 € VB</h2>
+<span>10245 Berlin Neukölln</span>
+</body>
+</html>"""
+
+
+def test_parse_detail_live_price_h2_and_meta_fields():
+    d = parser.parse_detail(_live_style_detail_html(), adid="3497734632")
+    assert d["preis_euro"] == 100
+    assert d["preis_typ"] == "vb"
+    assert d["kategorie_pfad"] == "s-reparaturen-dienstleistungen"
+    assert d["beschreibung_kurz"] == "Kurz auf dem Markt in Berlin."
 
 
 # ---------- Client-Filter ----------
@@ -468,6 +537,35 @@ def _search_namespace(**overrides):
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
+
+
+def test_cli_search_only_private_filters_live_style_cards(monkeypatch):
+    """--only-private darf Live-Karten nicht wegfiltern, wenn posterType im Payload steht."""
+    from kleinanzeigen_cli.http_client import Response
+
+    html = (
+        _live_style_search_html("99001", "PRIVATE")
+        + _live_style_search_html("99002", "COMMERCIAL").replace("<html><body>", "").replace(
+            "</body></html>", ""
+        )
+    )
+
+    class _Http:
+        def get(self, url, **k):
+            assert "senderType=PRIVAT" in url
+            return Response(status=200, url=url, text=html)
+
+    captured = []
+
+    def _capture(payload, as_json):
+        captured.append(payload)
+
+    monkeypatch.setattr(_cli_mod, "HttpClient", _Http)
+    monkeypatch.setattr(_cli_mod, "_emit", _capture)
+    assert _cli_mod.cmd_search(_search_namespace(only_private=True)) == 0
+    assert captured[0]["anzahl"] == 1
+    assert captured[0]["anzeigen"][0]["id"] == "99001"
+    assert captured[0]["anzeigen"][0]["versender_typ"] == "privat"
 
 
 def test_cli_search_parse_error_exit_6_not_login(monkeypatch):

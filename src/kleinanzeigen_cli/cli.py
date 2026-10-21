@@ -52,6 +52,17 @@ def _err(msg: str, *, code: int, **extra: Any) -> NoReturn:
 # ---------- search ----------
 
 
+def _effective_sender_type(args: argparse.Namespace) -> Optional[str]:
+    """Server-Filter PRIVAT/GEWERBLICH aus CLI-Flags ableiten."""
+    if args.sender_type:
+        return args.sender_type
+    if getattr(args, "only_private", False):
+        return "PRIVAT"
+    if getattr(args, "only_commercial", False):
+        return "GEWERBLICH"
+    return None
+
+
 def _client_filter(args: argparse.Namespace, offers: list[dict]) -> list[dict]:
     """Filtert bereits geparste Anzeigen nach clientseitigen Kriterien.
 
@@ -95,7 +106,7 @@ def cmd_search(args: argparse.Namespace) -> int:
             min_price=args.min_price,
             max_price=args.max_price,
             offer_type=args.offer_type,
-            sender_type=args.sender_type,
+            sender_type=_effective_sender_type(args),
             shipping=True if args.only_shipping else None,
             sorting=args.sorting,
             page=args.page,
@@ -133,7 +144,7 @@ def cmd_search(args: argparse.Namespace) -> int:
             "min_price": args.min_price,
             "max_price": args.max_price,
             "offer_type": args.offer_type,
-            "sender_type": args.sender_type,
+            "sender_type": _effective_sender_type(args),
             "only_shipping": args.only_shipping,
             "only_private": args.only_private,
             "only_commercial": args.only_commercial,
@@ -226,7 +237,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
             min_price=args.min_price,
             max_price=args.max_price,
             offer_type=args.offer_type,
-            sender_type=args.sender_type,
+            sender_type=_effective_sender_type(args),
             shipping=True if args.only_shipping else None,
             sorting=args.sorting,
             slug=args.category,
@@ -455,9 +466,9 @@ def _build_parser() -> argparse.ArgumentParser:
     s.add_argument("--only-shipping", action="store_true",
                    help="nur Anzeigen mit Versand")
     s.add_argument("--only-private", action="store_true",
-                   help="nur private Verkäufer (clientseitig)")
+                   help="nur private Verkäufer (senderType=PRIVAT + Nachfilter)")
     s.add_argument("--only-commercial", action="store_true",
-                   help="nur gewerbliche Verkäufer (clientseitig)")
+                   help="nur gewerbliche Verkäufer (senderType=GEWERBLICH + Nachfilter)")
     s.add_argument(
         "--sorting",
         choices=[
