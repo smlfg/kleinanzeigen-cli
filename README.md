@@ -188,6 +188,7 @@ Anzeigen-IDs und Slugs in die Irre).
 | 3    | Netzwerk- / HTTP-Fehler                                    |
 | 4    | Login fehlgeschlagen (Captcha, 2FA, Auth0-Fehler …)        |
 | 5    | `chats send` ohne `--confirm`                              |
+| 6    | Antwort konnte nicht geparst werden (Layout, leere Seite …) |
 
 Fehler werden als einzeiliges JSON-Objekt auf **stderr** geschrieben
 (`{"error": "...", ...}`). Erfolgs-Payloads gehen auf **stdout**.
