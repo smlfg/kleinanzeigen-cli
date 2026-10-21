@@ -81,6 +81,11 @@ der URL kopierst.
 und filtern zusätzlich nach `versender_typ` (aus dem eingebetteten
 Seiten-Payload, falls die Karte keinen Versender-Text mehr enthält).
 
+`--sorting` mappt auf den Live-Query `sortingField` (z. B.
+`PRICE_ASCENDING` → `PRICE_AMOUNT`); `sorting=` wird von der Site
+ignoriert. Bei Preissortierung werden die zurückgegebenen Treffer
+zusätzlich clientseitig nach `preis_euro` sortiert.
+
 ## Beispiele
 
 ```bash
