@@ -36,7 +36,7 @@ class HTTPError(Exception):
 
 
 class ParseError(Exception):
-    """Antwort konnte nicht wie erwartet geparst werden (Exit 4)."""
+    """Antwort konnte nicht wie erwartet geparst werden (Exit 6)."""
 
     def __init__(self, message: str, url: Optional[str] = None):
         super().__init__(message)

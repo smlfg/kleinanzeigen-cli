@@ -119,7 +119,7 @@ def cmd_search(args: argparse.Namespace) -> int:
     try:
         offers = parser.parse_search(r.text, limit=args.limit or 25)
     except ParseError as e:
-        _err(f"Parse-Fehler: {e}", code=4, url=url)
+        _err(f"Parse-Fehler: {e}", code=6, url=url)
 
     offers = _client_filter(args, offers)
 
@@ -176,7 +176,7 @@ def cmd_show(args: argparse.Namespace) -> int:
     try:
         ang = parser.parse_detail(r.text, adid=adid)
     except ParseError as e:
-        _err(f"Parse-Fehler: {e}", code=4, url=url)
+        _err(f"Parse-Fehler: {e}", code=6, url=url)
 
     if not ang.get("url"):
         ang["url"] = r.url
@@ -249,7 +249,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
     try:
         offers = parser.parse_search(r.text, limit=args.limit or 25)
     except ParseError as e:
-        _err(f"Parse-Fehler: {e}", code=4, url=url)
+        _err(f"Parse-Fehler: {e}", code=6, url=url)
 
     path = _watch_path(args.name)
     seen = set(read_json(path, default=[]) or [])
