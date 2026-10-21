@@ -46,8 +46,13 @@ def _user_id(session: Session) -> str:
         return str(session.user_id)
     email = session.email
     if not email:
+        # Token-Import (CI): E-Mail kann beim Refresh aus id_token kommen.
+        session.get_access_token()
+        email = session.email
+    if not email:
         raise auth.NotLoggedIn(
-            "E-Mail fehlt in der Session – bitte neu einloggen."
+            "E-Mail fehlt in der Session – KLEINANZEIGEN_EMAIL setzen "
+            "oder Refresh mit id_token nutzen."
         )
     # Profile-API (Basic-Auth wie die App).
     r = _net_call(

@@ -787,6 +787,41 @@ def test_chats_list_requires_login(tmp_path, monkeypatch):
         _chats_mod.list_conversations(s)
 
 
+def test_chats_list_without_email_refreshes_id_token(monkeypatch, tmp_path):
+    """Token-Import nur mit Refresh-Token: E-Mail kommt beim Refresh aus id_token."""
+    monkeypatch.setattr(_auth_mod, "config_path", lambda: str(tmp_path))
+    s = _auth_mod.Session()
+    s.set_refresh_token("RT-ONLY")
+    assert s.email is None
+
+    import requests as _req
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        assert json.get("grant_type") == "refresh_token"
+        return _ok(
+            200,
+            {
+                "access_token": "AT",
+                "expires_in": 3600,
+                "id_token": _make_id_token("alice@example.com"),
+            },
+        )
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        if "profile.json" in url:
+            assert "alice@example.com" in url
+            return _ok(200, {"data": {"id": 99}})
+        if "conversations" in url:
+            return _ok(200, {"conversations": []})
+        raise AssertionError(f"unexpected GET {url}")
+
+    monkeypatch.setattr(_req, "post", fake_post)
+    monkeypatch.setattr(_req, "get", fake_get)
+    items = _chats_mod.list_conversations(s)
+    assert items == []
+    assert s.email == "alice@example.com"
+
+
 def test_chats_read_parses(monkeypatch, tmp_path):
     monkeypatch.setattr(_auth_mod, "config_path", lambda: str(tmp_path))
     s = _auth_mod.Session()
