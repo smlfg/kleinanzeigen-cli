@@ -63,6 +63,27 @@ def _effective_sender_type(args: argparse.Namespace) -> Optional[str]:
     return None
 
 
+def _sort_offers(sorting: Optional[str], offers: list[dict]) -> list[dict]:
+    """Sortiert Treffer clientseitig, wenn die Live-Site/Reihenfolge abweicht."""
+    if not sorting:
+        return offers
+    mode = sorting.upper()
+    if mode == "PRICE_ASCENDING":
+        return sorted(
+            offers,
+            key=lambda o: (o.get("preis_euro") is None, o.get("preis_euro") or 0),
+        )
+    if mode == "PRICE_DESCENDING":
+        return sorted(
+            offers,
+            key=lambda o: (
+                o.get("preis_euro") is None,
+                -(o.get("preis_euro") or 0),
+            ),
+        )
+    return offers
+
+
 def _client_filter(args: argparse.Namespace, offers: list[dict]) -> list[dict]:
     """Filtert bereits geparste Anzeigen nach clientseitigen Kriterien.
 
@@ -91,6 +112,7 @@ def _client_filter(args: argparse.Namespace, offers: list[dict]) -> list[dict]:
         # schon vor; hier filtern wir strenger, falls das Parsing mal
         # uneindeutig war (Cards haben keinen direkten Marker).
         pass
+    offers = _sort_offers(getattr(args, "sorting", None), offers)
     if args.limit:
         offers = offers[: args.limit]
     return offers
