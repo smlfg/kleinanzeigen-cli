@@ -9,8 +9,10 @@ Strategien (Smoke-getestet am 2026-10-13):
   Span-Text in der Karte, sondern im eingebetteten RSC-Payload der Seite
   (`posterType`: PRIVATE/COMMERCIAL, keyed über `seoLink`/Anzeigen-ID).
 
-* Detail: der Titel steht im JSON-LD; Preis in `<p class="boxedarticle--price">…</p>`;
-  Beschreibung in JSON-LD + `<section class="adnote">`/`.adnote--content`.
+* Detail: der Titel steht im JSON-LD; Preis in
+  `<h2 class="boxedarticle--price">…</h2>` (Live ab ~2026, früher `<p>`);
+  Kategorie im Breadcrumb `#vap-brdcrmb`; Beschreibung in JSON-LD +
+  `<section class="adnote">`/`.adnote--content`.
 
 Wenn die Seite ihre Struktur ändert, liefern die Parser ParseError.
 """
@@ -99,6 +101,26 @@ def _category_from_card_text(html: str) -> Optional[str]:
     m = _KAT_RE.search(html)
     if m:
         return m.group(1)
+    return None
+
+
+def _category_from_detail_html(html: str) -> Optional[str]:
+    """Liest die tiefste Kategorie aus dem VIP-Breadcrumb."""
+    m = re.search(r'id="vap-brdcrmb"[^>]*>.*?</div>', html, re.DOTALL | re.I)
+    if not m:
+        return _category_from_card_text(html)
+    cats = re.findall(r'href="/(s-[a-z0-9\-]+)/c\d+"', m.group(0))
+    return cats[-1] if cats else None
+
+
+def _detail_price_text(html: str, soup: BeautifulSoup) -> Optional[str]:
+    """Preistext der Detailseite (h2 oder p mit ``boxedarticle--price``)."""
+    node = soup.find(class_=re.compile(r"boxedarticle--price"))
+    if node:
+        return _norm_ws(node.get_text(" "))
+    m = re.search(r'class="boxedarticle--price"[^>]*>([^<]+)', html)
+    if m:
+        return _norm_ws(m.group(1))
     return None
 
 
@@ -331,20 +353,16 @@ def parse_detail(html: str, *, adid: str) -> dict:
         h1 = soup.find("h1")
         title = _norm_ws(h1.get_text(" ")) if h1 else None
 
-    # Preis
-    price = None
-    p_node = soup.find("p", class_=re.compile(r"boxedarticle--price"))
-    if p_node:
-        price = _eur_to_int(p_node.get_text(" "))
-    if price is None:
-        # zweiter Versuch: erste €-Zahl im HTML, die im Title-Bereich steht
-        m2 = re.search(
-            r'class="boxedarticle--price"[^>]*>.{0,80}?(\d[\d.,]*)\s*(?:&euro;|€)',
-            html,
-            re.DOTALL,
-        )
-        if m2:
-            price = _eur_to_int(m2.group(1))
+    # Preis + Preis-Typ (gleiche Logik wie Suchkarten)
+    price_field = _detail_price_text(html, soup)
+    if price_field is None:
+        price = None
+        price_type = None
+    else:
+        price = _eur_to_int(price_field)
+        price_type = _price_type(price_field)
+
+    kategorie_pfad = _category_from_detail_html(html)
 
     # PLZ + Ort (Headline-Bereich)
     ort = None
@@ -385,9 +403,12 @@ def parse_detail(html: str, *, adid: str) -> dict:
         "url": url,
         "titel": title,
         "preis_euro": price,
+        "preis_typ": price_type,
         "ort": ort,
         "plz": plz,
         "versand_moeglich": versand,
         "versender_typ": sender_type,
+        "kategorie_pfad": kategorie_pfad,
+        "beschreibung_kurz": (description[:240] if description else None),
         "beschreibung_text": beschreibung,
     }
