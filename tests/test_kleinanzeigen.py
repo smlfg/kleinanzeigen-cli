@@ -340,6 +340,24 @@ def test_cli_show_rejects_garbage():
     assert "Anzeigen-ID" in r.stderr or "Konnte keine" in r.stderr
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["search", "--location", "abc", "--json"],
+        ["search", "--radius", "xyz", "--json"],
+        ["frobnicate"],
+        ["show"],
+        ["watch", "--query", "x"],
+    ],
+)
+def test_cli_argparse_errors_exit_1_json(argv):
+    r = _run_cli(*argv)
+    assert r.returncode == 1
+    assert "usage:" not in r.stderr.lower()
+    payload = json.loads(r.stderr.strip())
+    assert payload.get("error")
+
+
 # ---------- Auth / Chats (neu) ----------
 
 
